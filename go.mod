@@ -1,6 +1,6 @@
 module github.com/loafoe/caddy-token
 
-go 1.22.5
+go 1.22
 
 require (
 	github.com/caddyserver/caddy/v2 v2.8.4
