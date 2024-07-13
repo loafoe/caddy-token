@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	Prefix         = "lst_"
 	scopeIDHeader  = "X-Scope-OrgID-Test"
 	apiKeyHeader   = "X-API-Key"
 	tokenKeyHeader = "X-Id-Token"
@@ -191,7 +192,7 @@ func readTokenFile(filename string) (map[string]Key, error) {
 	for scanner.Scan() {
 		var decoded Key
 		trimmedLine := strings.TrimSpace(scanner.Text())
-		err := json.Unmarshal([]byte(trimmedLine), &decoded)
+		err := json.Unmarshal([]byte(strings.TrimPrefix(trimmedLine, Prefix)), &decoded)
 		if err != nil {
 			return nil, err
 		}
