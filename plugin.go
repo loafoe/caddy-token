@@ -51,33 +51,30 @@ func (m *Middleware) CaddyModule() caddy.ModuleInfo {
 // UnmarshalCaddyfile sets up Lessor from Caddyfile tokens. Syntax:
 // UnmarshalCaddyfile sets up the DNS provider from Caddyfile tokens. Syntax:
 //
-//		token [<token_file>] {
+//		token {
 //		    file <token_file>
 //	        issuer <issuer_url>
 //		}
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for d.Next() {
 		if d.NextArg() {
-			m.TokenFile = d.Val()
-		}
-		if d.NextArg() {
 			return d.ArgErr()
 		}
 		for nesting := d.Nesting(); d.NextBlock(nesting); {
 			switch d.Val() {
 			case "file":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
 				if m.TokenFile != "" {
 					return d.Err("Issuer already set")
 				}
 				m.TokenFile = d.Val()
-				if d.NextArg() {
-					return d.ArgErr()
-				}
 			case "issuer":
-				m.Issuer = d.Val()
-				if d.NextArg() {
+				if !d.NextArg() {
 					return d.ArgErr()
 				}
+				m.Issuer = d.Val()
 			default:
 				return d.Errf("unrecognized subdirective '%s'", d.Val())
 			}
@@ -116,6 +113,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		m.verifier = provider.Verifier(&oidc.Config{
 			SkipClientIDCheck: true,
 		})
+		m.logger.Info("verifier setup", zap.String("issuer", m.Issuer))
 	}
 	if m.TokenFile != "" {
 		tokens, err := m.readTokenFile(m.TokenFile)
