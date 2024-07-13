@@ -3,7 +3,7 @@ module github.com/loafoe/token/cmd/tokengen
 go 1.22.5
 
 require (
-	github.com/loafoe/caddy-token v0.0.1
+	github.com/loafoe/caddy-token v0.0.3
 	github.com/spf13/cobra v1.8.1
 )
 
