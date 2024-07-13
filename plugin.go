@@ -51,10 +51,10 @@ func (m *Middleware) CaddyModule() caddy.ModuleInfo {
 
 // UnmarshalCaddyfile sets up casdy-token from Caddyfile tokens. Syntax:
 //
-//		token {
-//		    file <token_file>
-//	        issuer <issuer_url>
-//		}
+//	token {
+//	  file <token_file>
+//	  issuer <issuer_url>
+//	}
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for d.Next() {
 		if d.NextArg() {
