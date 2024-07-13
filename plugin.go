@@ -118,7 +118,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		})
 	}
 	if m.TokenFile != "" {
-		tokens, err := readTokenFile(m.TokenFile)
+		tokens, err := m.readTokenFile(m.TokenFile)
 		if err != nil {
 			return err
 		}
@@ -177,7 +177,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 }
 
 // readTokenFile reads a static token file and returns a map of tokens
-func readTokenFile(filename string) (map[string]Key, error) {
+func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
 	tokens := make(map[string]Key)
 
 	file, err := os.Open(filename)
@@ -202,7 +202,7 @@ func readTokenFile(filename string) (map[string]Key, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-
+	m.logger.Info("loaded tokens", zap.Int("count", len(tokens)))
 	return tokens, nil
 }
 
