@@ -3,10 +3,14 @@ package token
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"fmt"
 	caddy "github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"net/http"
 	"os"
@@ -14,8 +18,9 @@ import (
 )
 
 const (
-	scopeIDHeader = "X-Scope-OrgID-Test"
-	tokenHeader   = "X-API-Key"
+	scopeIDHeader  = "X-Scope-OrgID-Test"
+	apiKeyHeader   = "X-API-Key"
+	tokenKeyHeader = "X-Id-Token"
 )
 
 type Key struct {
@@ -31,6 +36,8 @@ type Middleware struct {
 	logger    *zap.Logger
 	TokenFile string
 	tokens    map[string]Key
+	Issuer    string
+	verifier  *oidc.IDTokenVerifier
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -43,9 +50,10 @@ func (m *Middleware) CaddyModule() caddy.ModuleInfo {
 // UnmarshalCaddyfile sets up Lessor from Caddyfile tokens. Syntax:
 // UnmarshalCaddyfile sets up the DNS provider from Caddyfile tokens. Syntax:
 //
-//	token [<token_file>] {
-//	    file <token_file>
-//	}
+//		token [<token_file>] {
+//		    file <token_file>
+//	        issuer <issuer_url>
+//		}
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for d.Next() {
 		if d.NextArg() {
@@ -61,6 +69,11 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Err("Issuer already set")
 				}
 				m.TokenFile = d.Val()
+				if d.NextArg() {
+					return d.ArgErr()
+				}
+			case "issuer":
+				m.Issuer = d.Val()
 				if d.NextArg() {
 					return d.ArgErr()
 				}
@@ -92,26 +105,74 @@ func (m *Middleware) Validate() error {
 }
 
 func (m *Middleware) Provision(ctx caddy.Context) error {
-	tokens, err := readTokenFile(m.TokenFile)
-	if err != nil {
-		return err
-	}
-	m.tokens = tokens
 	m.logger = ctx.Logger() // g.logger is a *zap.Logger
+	if m.Issuer != "" {
+		provider, err := oidc.NewProvider(ctx, m.Issuer)
+		if err != nil {
+			m.logger.Error("error provisioning issuer", zap.String("issuer", m.Issuer), zap.Error(err))
+			return fmt.Errorf("erorr provisioning issuer '%s': %w", m.Issuer, err)
+		}
+		m.verifier = provider.Verifier(&oidc.Config{
+			SkipClientIDCheck: true,
+		})
+	}
+	if m.TokenFile != "" {
+		tokens, err := readTokenFile(m.TokenFile)
+		if err != nil {
+			return err
+		}
+		m.tokens = tokens
+	}
+	if m.verifier == nil && len(m.tokens) == 0 {
+		return fmt.Errorf("no tokens or issuer provided")
+	}
 	return nil
 }
 
 func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
-	tokenValue := r.Header.Get(tokenHeader)
-	if tokenValue == "" {
-		return caddyhttp.Error(http.StatusUnauthorized, nil)
+	apiKey := r.Header.Get(apiKeyHeader)
+	if apiKey != "" { // Token flow
+		token, ok := m.tokens[apiKey]
+		if !ok {
+			return caddyhttp.Error(http.StatusForbidden, nil)
+		}
+		r.Header.Set(scopeIDHeader, token.Organization)
+		return nil
 	}
-	token, ok := m.tokens[tokenValue]
-	if !ok {
-		return caddyhttp.Error(http.StatusForbidden, nil)
+	idToken := r.Header.Get(tokenKeyHeader)
+	if m.verifier != nil && idToken != "" { // OIDC flow
+		_, err := m.verifier.Verify(r.Context(), idToken)
+		if err != nil {
+			return caddyhttp.Error(http.StatusUnauthorized, err)
+		}
+		type DexClaims struct {
+			ManagingOrganization string `json:"mid,omitempty"`
+			jwt.RegisteredClaims
+		}
+
+		token, err := jwt.ParseWithClaims(idToken, &DexClaims{}, func(token *jwt.Token) (interface{}, error) {
+			return []byte(""), jwt.ErrTokenUnverifiable // We already verified
+		})
+		if !errors.Is(err, jwt.ErrTokenUnverifiable) {
+			return caddyhttp.Error(http.StatusUnauthorized, err)
+		}
+		// Verified
+		claims, ok := token.Claims.(*DexClaims)
+		if !ok {
+			m.logger.Error("invalid claims detected", zap.Error(err))
+			err := fmt.Errorf("invalid claims detected: %w", err)
+			return caddyhttp.Error(http.StatusUnauthorized, err)
+		}
+		if len(claims.ManagingOrganization) == 0 {
+			r.Header.Set(scopeIDHeader, claims.ManagingOrganization)
+		} else {
+			m.logger.Info("fallback fake tenant")
+			r.Header.Set(scopeIDHeader, "fake") // Default to fake
+		}
+		return nil
 	}
-	r.Header.Set(scopeIDHeader, token.Organization)
-	return nil
+	// No valid token found
+	return caddyhttp.Error(http.StatusUnauthorized, nil)
 }
 
 // readTokenFile reads a static token file and returns a map of tokens
