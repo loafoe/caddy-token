@@ -2,6 +2,7 @@ package token
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -180,7 +181,7 @@ func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
 
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening file %s: %w", filename, err)
 	}
 	defer func(file *os.File) {
 		_ = file.Close()
@@ -190,15 +191,17 @@ func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
 	for scanner.Scan() {
 		var decoded Key
 		trimmedLine := strings.TrimSpace(scanner.Text())
-		err := json.Unmarshal([]byte(strings.TrimPrefix(trimmedLine, Prefix)), &decoded)
+		prefixRemoved := strings.TrimPrefix(trimmedLine, Prefix)
+		decodedString, err := base64.StdEncoding.DecodeString(prefixRemoved)
+		err = json.Unmarshal([]byte(decodedString), &decoded)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unmarshal token: %w '%s'", err, decodedString)
 		}
 		tokens[trimmedLine] = decoded
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scanner: %w", err)
 	}
 	m.logger.Info("loaded tokens", zap.Int("count", len(tokens)))
 	return tokens, nil
