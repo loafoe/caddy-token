@@ -49,8 +49,7 @@ func (m *Middleware) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// UnmarshalCaddyfile sets up Lessor from Caddyfile tokens. Syntax:
-// UnmarshalCaddyfile sets up the DNS provider from Caddyfile tokens. Syntax:
+// UnmarshalCaddyfile sets up casdy-token from Caddyfile tokens. Syntax:
 //
 //		token {
 //		    file <token_file>
@@ -193,6 +192,9 @@ func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
 		trimmedLine := strings.TrimSpace(scanner.Text())
 		prefixRemoved := strings.TrimPrefix(trimmedLine, Prefix)
 		decodedString, err := base64.StdEncoding.DecodeString(prefixRemoved)
+		if err != nil {
+			return nil, fmt.Errorf("decode token: %w", err)
+		}
 		err = json.Unmarshal([]byte(decodedString), &decoded)
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal token: %w '%s'", err, decodedString)
