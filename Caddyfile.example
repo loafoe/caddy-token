@@ -1,0 +1,22 @@
+{
+	order token first
+	debug
+}
+
+:8080 {
+	log {
+		output stdout # Send logs to standard output
+		level info # Log all debug messages and above
+		format filter {
+			request>headers>X-Id-Token replace REDACTED
+		}
+	}
+	token {
+		issuer https://dex.issuer.lan
+		file tokenfile
+	}
+
+	reverse_proxy https://some.service.internal {
+		header_up Host {http.reverse_proxy.upstream.hostport}
+	}
+}
