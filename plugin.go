@@ -165,7 +165,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		if len(claims.ManagingOrganization) == 0 {
 			r.Header.Set(scopeIDHeader, claims.ManagingOrganization)
 		} else {
-			m.logger.Info("fallback fake tenant")
+			m.logger.Debug("fallback fake tenant")
 			r.Header.Set(scopeIDHeader, "fake") // Default to fake
 		}
 		return nil
