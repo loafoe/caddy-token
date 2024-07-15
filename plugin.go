@@ -133,7 +133,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 	if apiKey != "" { // API Key flow
 		token, ok := m.tokens[apiKey]
 		if !ok {
-			m.logger.Debug("invalid token detected",
+			m.logger.Error("invalid token detected",
 				zap.String("apiKey", apiKey),
 				zap.Int64("count", int64(len(m.tokens))))
 			return caddyhttp.Error(http.StatusForbidden, nil)
@@ -145,7 +145,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 	if m.verifier != nil && idToken != "" { // OIDC flow
 		_, err := m.verifier.Verify(r.Context(), idToken)
 		if err != nil {
-			m.logger.Debug("invalid token detected", zap.Error(err))
+			m.logger.Error("invalid token detected", zap.Error(err))
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
 		type DexClaims struct {
@@ -161,7 +161,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		// Verified
 		claims, ok := token.Claims.(*DexClaims)
 		if !ok {
-			m.logger.Debug("invalid claims detected", zap.Error(err))
+			m.logger.Error("invalid claims detected", zap.Error(err))
 			err := fmt.Errorf("invalid claims detected: %w", err)
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
@@ -175,7 +175,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		return nil
 	}
 	// No valid token found
-	m.logger.Debug("no valid token found")
+	m.logger.Error("no valid token found")
 	return caddyhttp.Error(http.StatusUnauthorized, nil)
 }
 
