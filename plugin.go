@@ -125,6 +125,10 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 	if m.verifier == nil && len(m.tokens) == 0 {
 		return fmt.Errorf("no tokens or issuer provided")
 	}
+	m.logger.Info("provisioned caddy-token middleware",
+		zap.String("issuer", m.Issuer),
+		zap.String("tokenFile", m.TokenFile),
+		zap.Int64("apiKeyCount", int64(len(m.tokens))))
 	return nil
 }
 
@@ -210,7 +214,7 @@ func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scanner: %w", err)
 	}
-	m.logger.Info("loaded tokens", zap.Int("count", len(tokens)))
+	m.logger.Info("loaded tokens", zap.Int("apiKeyCount", len(tokens)))
 	return tokens, nil
 }
 

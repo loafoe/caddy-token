@@ -3,7 +3,7 @@
 	debug
 }
 
-:8080 {
+:3000 {
 	log {
 		output stdout # Send logs to standard output
 		level info # Log all debug messages and above
@@ -12,7 +12,7 @@
 		}
 	}
 	token {
-		issuer https://dex.issuer.lan
+		#issuer https://dex.issuer.lan
 		file tokenfile
 	}
 
