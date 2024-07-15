@@ -107,7 +107,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 	if m.Issuer != "" {
 		provider, err := oidc.NewProvider(ctx, m.Issuer)
 		if err != nil {
-			m.logger.Error("error provisioning issuer", zap.String("issuer", m.Issuer), zap.Error(err))
+			m.logger.Info("error provisioning issuer", zap.String("issuer", m.Issuer), zap.Error(err))
 			return fmt.Errorf("erorr provisioning issuer '%s': %w", m.Issuer, err)
 		}
 		m.verifier = provider.Verifier(&oidc.Config{
@@ -133,7 +133,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 	if apiKey != "" { // API Key flow
 		token, ok := m.tokens[apiKey]
 		if !ok {
-			m.logger.Error("invalid token detected",
+			m.logger.Info("invalid token detected",
 				zap.String("apiKey", apiKey),
 				zap.Int64("count", int64(len(m.tokens))))
 			return caddyhttp.Error(http.StatusForbidden, nil)
@@ -145,7 +145,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 	if m.verifier != nil && idToken != "" { // OIDC flow
 		_, err := m.verifier.Verify(r.Context(), idToken)
 		if err != nil {
-			m.logger.Error("invalid token detected", zap.Error(err))
+			m.logger.Info("invalid token detected", zap.Error(err))
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
 		type DexClaims struct {
@@ -161,7 +161,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		// Verified
 		claims, ok := token.Claims.(*DexClaims)
 		if !ok {
-			m.logger.Error("invalid claims detected", zap.Error(err))
+			m.logger.Info("invalid claims detected", zap.Error(err))
 			err := fmt.Errorf("invalid claims detected: %w", err)
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
