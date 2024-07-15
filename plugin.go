@@ -162,7 +162,8 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			err := fmt.Errorf("invalid claims detected: %w", err)
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
-		if len(claims.ManagingOrganization) == 0 {
+		// TODO: configurable header injection
+		if len(claims.ManagingOrganization) > 0 {
 			r.Header.Set(scopeIDHeader, claims.ManagingOrganization)
 		} else {
 			m.logger.Debug("fallback fake tenant")
