@@ -153,9 +153,9 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		zap.Int64("apiKeyCount", int64(len(m.tokens))))
 	// start watching tokenFile
 	if m.TokenFile != "" {
+		m.logger.Info("starting watcher for token file", zap.String("tokenFile", m.TokenFile))
 		// Start listening for events
 		go func() {
-			m.logger.Info("starting watcher for token file", zap.String("tokenFile", m.TokenFile))
 			for {
 				select {
 				case event, ok := <-m.watcher.Events:
@@ -192,6 +192,8 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 				}
 			}
 		}()
+	} else {
+		m.logger.Info("no token file to watch")
 	}
 	return nil
 }
