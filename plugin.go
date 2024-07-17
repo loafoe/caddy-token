@@ -167,7 +167,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 						err = retry.Do(func() error {
 							tokens, err = m.readTokenFile(m.TokenFile)
 							return err
-						}, retry.Attempts(3), retry.Delay(1))
+						}, retry.Attempts(5), retry.Delay(1))
 						if err != nil {
 							m.logger.Error("error reloading token file", zap.Error(err))
 						} else {
@@ -179,7 +179,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 						_ = m.watcher.Remove(m.TokenFile)
 						err = retry.Do(func() error {
 							return m.watcher.Add(m.TokenFile)
-						}, retry.Attempts(3), retry.Delay(1))
+						}, retry.Attempts(5), retry.Delay(1))
 						if err != nil {
 							m.logger.Error("error re-adding watcher", zap.Error(err))
 						}
@@ -265,6 +265,9 @@ func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
 	for scanner.Scan() {
 		var decoded Key
 		trimmedLine := strings.TrimSpace(scanner.Text())
+		if len(trimmedLine) == 0 { // Skip empty lines
+			continue
+		}
 		prefixRemoved := strings.TrimPrefix(trimmedLine, Prefix)
 		decodedString, err := base64.StdEncoding.DecodeString(prefixRemoved)
 		if err != nil {
