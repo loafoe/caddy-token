@@ -6,15 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/avast/retry-go/v4"
 	caddy "github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/fsnotify/fsnotify"
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -40,6 +43,7 @@ type Middleware struct {
 	tokens    map[string]Key
 	Issuer    string
 	verifier  *oidc.IDTokenVerifier
+	watcher   *fsnotify.Watcher
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -69,7 +73,12 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				if m.TokenFile != "" {
 					return d.Err("Issuer already set")
 				}
-				m.TokenFile = d.Val()
+				filePath := d.Val()
+				absPath, err := filepath.Abs(filePath)
+				if err != nil {
+					return d.Errf("error resolving path: %w", err)
+				}
+				m.TokenFile = absPath
 			case "issuer":
 				if !d.NextArg() {
 					return d.ArgErr()
@@ -103,7 +112,16 @@ func (m *Middleware) Validate() error {
 }
 
 func (m *Middleware) Provision(ctx caddy.Context) error {
+	var err error
+
 	m.logger = ctx.Logger() // g.logger is a *zap.Logger
+	// Create new watcher.
+	m.watcher, err = fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("error creating watcher: %w", err)
+	}
+	//defer watcher.Close()
+
 	if m.Issuer != "" {
 		provider, err := oidc.NewProvider(ctx, m.Issuer)
 		if err != nil {
@@ -120,6 +138,10 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		if err != nil {
 			return err
 		}
+		err = m.watcher.Add(m.TokenFile)
+		if err != nil {
+			return fmt.Errorf("error watching token file: %w", err)
+		}
 		m.tokens = tokens
 	}
 	if m.verifier == nil && len(m.tokens) == 0 {
@@ -129,6 +151,48 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		zap.String("issuer", m.Issuer),
 		zap.String("tokenFile", m.TokenFile),
 		zap.Int64("apiKeyCount", int64(len(m.tokens))))
+	// start watching tokenFile
+	if m.TokenFile != "" {
+		// Start listening for events
+		go func() {
+			m.logger.Info("starting watcher for token file", zap.String("tokenFile", m.TokenFile))
+			for {
+				select {
+				case event, ok := <-m.watcher.Events:
+					if !ok {
+						return
+					}
+					if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove) {
+						tokens := make(map[string]Key)
+						err = retry.Do(func() error {
+							tokens, err = m.readTokenFile(m.TokenFile)
+							return err
+						}, retry.Attempts(3), retry.Delay(1))
+						if err != nil {
+							m.logger.Error("error reloading token file", zap.Error(err))
+						} else {
+							m.tokens = tokens
+							m.logger.Info("reloaded token file", zap.Int("apiKeyCount", len(m.tokens)))
+						}
+					}
+					if event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove) { // Re-add
+						_ = m.watcher.Remove(m.TokenFile)
+						err = retry.Do(func() error {
+							return m.watcher.Add(m.TokenFile)
+						}, retry.Attempts(3), retry.Delay(1))
+						if err != nil {
+							m.logger.Error("error re-adding watcher", zap.Error(err))
+						}
+					}
+				case err, ok := <-m.watcher.Errors:
+					if !ok {
+						return
+					}
+					m.logger.Error("watcher error", zap.Error(err))
+				}
+			}
+		}()
+	}
 	return nil
 }
 
