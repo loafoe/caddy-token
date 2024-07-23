@@ -199,7 +199,13 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 }
 
 func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
+	// Read API key from header
 	apiKey := r.Header.Get(apiKeyHeader)
+	// Try to extract token from Basic Auth
+	username, password, ok := r.BasicAuth()
+	if ok && username == "otlp" && password != "" {
+		apiKey = password
+	}
 	if apiKey != "" { // API Key flow
 		token, ok := m.tokens[apiKey]
 		if !ok {
