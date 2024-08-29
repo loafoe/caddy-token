@@ -9,7 +9,6 @@ import (
 	"github.com/avast/retry-go/v4"
 	caddy "github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/fsnotify/fsnotify"
@@ -17,13 +16,12 @@ import (
 	"go.uber.org/zap"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 const (
 	Prefix         = "lst_"
-	scopeIDHeader  = "X-Scope-OrgID-Test"
+	scopeIDHeader  = "X-Scope-OrgID"
 	apiKeyHeader   = "X-Api-Key"
 	tokenKeyHeader = "X-Id-Token"
 )
@@ -38,12 +36,13 @@ type Key struct {
 }
 
 type Middleware struct {
-	logger    *zap.Logger
-	TokenFile string
-	tokens    map[string]Key
-	Issuer    string
-	verifier  *oidc.IDTokenVerifier
-	watcher   *fsnotify.Watcher
+	logger          *zap.Logger
+	TokenFile       string
+	tokens          map[string]Key
+	Issuer          string
+	injectOrgHeader bool
+	verifier        *oidc.IDTokenVerifier
+	watcher         *fsnotify.Watcher
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -51,52 +50,6 @@ func (m *Middleware) CaddyModule() caddy.ModuleInfo {
 		ID:  "http.handlers.token",
 		New: func() caddy.Module { return new(Middleware) },
 	}
-}
-
-// UnmarshalCaddyfile sets up casdy-token from Caddyfile tokens. Syntax:
-//
-//	token {
-//	  file <token_file>
-//	  issuer <issuer_url>
-//	}
-func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	for d.Next() {
-		if d.NextArg() {
-			return d.ArgErr()
-		}
-		for nesting := d.Nesting(); d.NextBlock(nesting); {
-			switch d.Val() {
-			case "file":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				if m.TokenFile != "" {
-					return d.Err("Issuer already set")
-				}
-				filePath := d.Val()
-				absPath, err := filepath.Abs(filePath)
-				if err != nil {
-					return d.Errf("error resolving path: %w", err)
-				}
-				m.TokenFile = absPath
-			case "issuer":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				m.Issuer = d.Val()
-			default:
-				return d.Errf("unrecognized subdirective '%s'", d.Val())
-			}
-		}
-	}
-	return nil
-}
-
-// parseCaddyfile unmarshals tokens from h into a new Middleware.
-func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	m := &Middleware{}
-	err := m.UnmarshalCaddyfile(h.Dispenser)
-	return m, err
 }
 
 func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
@@ -114,7 +67,8 @@ func (m *Middleware) Validate() error {
 func (m *Middleware) Provision(ctx caddy.Context) error {
 	var err error
 
-	m.logger = ctx.Logger() // g.logger is a *zap.Logger
+	m.injectOrgHeader = true // default
+	m.logger = ctx.Logger()  // g.logger is a *zap.Logger
 	// Create new watcher.
 	m.watcher, err = fsnotify.NewWatcher()
 	if err != nil {
@@ -214,7 +168,9 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 				zap.Int64("count", int64(len(m.tokens))))
 			return caddyhttp.Error(http.StatusForbidden, nil)
 		}
-		r.Header.Set(scopeIDHeader, token.Organization)
+		if m.injectOrgHeader {
+			r.Header.Set(scopeIDHeader, token.Organization)
+		}
 		return nil
 	}
 	idToken := r.Header.Get(tokenKeyHeader)
@@ -241,12 +197,11 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			err := fmt.Errorf("invalid claims detected: %w", err)
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
-		// TODO: configurable header injection
-		if len(claims.ManagingOrganization) > 0 {
+		// Inject X-Scope-OrgID header
+		if m.injectOrgHeader && len(claims.ManagingOrganization) > 0 {
 			r.Header.Set(scopeIDHeader, claims.ManagingOrganization)
 		} else {
-			m.logger.Debug("fallback fake tenant")
-			r.Header.Set(scopeIDHeader, "fake") // Default to fake
+			m.logger.Debug("not injecting scopeIDHeader")
 		}
 		return nil
 	}
@@ -291,11 +246,6 @@ func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
 	}
 	m.logger.Info("loaded tokens", zap.Int("apiKeyCount", len(tokens)))
 	return tokens, nil
-}
-
-func init() {
-	caddy.RegisterModule(&Middleware{})
-	httpcaddyfile.RegisterHandlerDirective("token", parseCaddyfile)
 }
 
 // Interface guards
