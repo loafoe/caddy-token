@@ -51,13 +51,13 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				if enable := d.Val(); enable == "false" {
-					m.injectOrgHeader = false
+					m.InjectOrgHeader = false
 				}
 			case "tenantOrgClaim":
 				if !d.NextArg() {
 					return d.ArgErr()
 				}
-				m.tenantOrgClaim = d.Val()
+				m.TenantOrgClaim = d.Val()
 			default:
 				return d.Errf("unrecognized subdirective '%s'", d.Val())
 			}

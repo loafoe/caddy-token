@@ -41,10 +41,10 @@ type Middleware struct {
 	TokenFile       string
 	tokens          map[string]Key
 	Issuer          string
-	injectOrgHeader bool
+	InjectOrgHeader bool
 	verifier        *oidc.IDTokenVerifier
 	watcher         *fsnotify.Watcher
-	tenantOrgClaim  string
+	TenantOrgClaim  string
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -69,7 +69,7 @@ func (m *Middleware) Validate() error {
 func (m *Middleware) Provision(ctx caddy.Context) error {
 	var err error
 
-	m.injectOrgHeader = true // default
+	m.InjectOrgHeader = true // default
 	m.logger = ctx.Logger()  // g.logger is a *zap.Logger
 	// Create new watcher.
 	m.watcher, err = fsnotify.NewWatcher()
@@ -107,7 +107,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		zap.String("issuer", m.Issuer),
 		zap.String("tokenFile", m.TokenFile),
 		zap.Int64("apiKeyCount", int64(len(m.tokens))),
-		zap.String("tenantOrgClaim", m.tenantOrgClaim))
+		zap.String("TenantOrgClaim", m.TenantOrgClaim))
 	// start watching tokenFile
 	if m.TokenFile != "" {
 		m.logger.Info("starting watcher for token file", zap.String("tokenFile", m.TokenFile))
@@ -171,7 +171,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 				zap.Int64("count", int64(len(m.tokens))))
 			return caddyhttp.Error(http.StatusForbidden, nil)
 		}
-		if m.injectOrgHeader {
+		if m.InjectOrgHeader {
 			r.Header.Set(scopeIDHeader, token.Organization)
 		}
 		return nil
@@ -203,8 +203,8 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
 		// Inject X-Scope-OrgID header
-		if m.injectOrgHeader {
-			switch m.tenantOrgClaim {
+		if m.InjectOrgHeader {
+			switch m.TenantOrgClaim {
 			case "ort":
 				if len(claims.ObservabilityReadTenants) > 0 {
 					m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
