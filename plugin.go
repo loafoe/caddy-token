@@ -106,7 +106,8 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 	m.logger.Info("provisioned caddy-token middleware",
 		zap.String("issuer", m.Issuer),
 		zap.String("tokenFile", m.TokenFile),
-		zap.Int64("apiKeyCount", int64(len(m.tokens))))
+		zap.Int64("apiKeyCount", int64(len(m.tokens))),
+		zap.String("tenantOrgClaim", m.tenantOrgClaim))
 	// start watching tokenFile
 	if m.TokenFile != "" {
 		m.logger.Info("starting watcher for token file", zap.String("tokenFile", m.TokenFile))
@@ -206,17 +207,20 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			switch m.tenantOrgClaim {
 			case "ort":
 				if len(claims.ObservabilityReadTenants) > 0 {
+					m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
 					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityReadTenants, "|"))
 				}
 			case "owt":
 				if len(claims.ObservabilityWriteTenants) > 0 {
+					m.logger.Info("owt X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
 					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityWriteTenants, "|"))
 				}
 			default:
+				m.logger.Info("default X-Scope-OrgID", zap.String("value", claims.ManagingOrganization))
 				r.Header.Set(scopeIDHeader, claims.ManagingOrganization)
 			}
 		} else {
-			m.logger.Debug("not injecting scopeIDHeader")
+			m.logger.Info("not injecting X-Scope-OrgID header")
 		}
 		return nil
 	}
