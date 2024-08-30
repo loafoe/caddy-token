@@ -29,6 +29,7 @@ func tokenGenerate(cmd *cobra.Command, args []string) {
 	env, _ := cmd.Flags().GetString("environment")
 	region, _ := cmd.Flags().GetString("region")
 	project, _ := cmd.Flags().GetString("project")
+	scopes, _ := cmd.Flags().GetStringSlice("scopes")
 	if org == "" || env == "" || region == "" || project == "" {
 		fmt.Println("Please provide all required parameters")
 		return
@@ -42,11 +43,13 @@ func tokenGenerate(cmd *cobra.Command, args []string) {
 		}
 		randomString := generateRandomString(randomCount)
 		var newToken token.Key
+		newToken.Version = "1"
 		newToken.Organization = org
 		newToken.Environment = env
 		newToken.Region = region
 		newToken.Project = project
 		newToken.Token = randomString
+		newToken.Scopes = scopes
 		marshalled, _ := json.Marshal(newToken)
 		key := base64.StdEncoding.EncodeToString(marshalled)
 		if strings.HasSuffix(key, "=") {
@@ -77,4 +80,5 @@ func init() {
 	generateCmd.Flags().StringP("environment", "e", "", "Environment ID")
 	generateCmd.Flags().StringP("region", "r", "", "Region ID")
 	generateCmd.Flags().StringP("project", "p", "", "Project ID")
+	generateCmd.Flags().StringSliceP("scopes", "s", []string{}, "Scopes")
 }

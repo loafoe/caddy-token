@@ -27,12 +27,13 @@ const (
 )
 
 type Key struct {
-	Version      string `json:"v"`
-	Token        string `json:"t"`
-	Organization string `json:"o"`
-	Environment  string `json:"e"`
-	Region       string `json:"r"`
-	Project      string `json:"p"`
+	Version      string   `json:"v"`
+	Token        string   `json:"t"`
+	Organization string   `json:"o"`
+	Environment  string   `json:"e"`
+	Region       string   `json:"r"`
+	Project      string   `json:"p"`
+	Scopes       []string `json:"s,omitempty"`
 }
 
 type Middleware struct {

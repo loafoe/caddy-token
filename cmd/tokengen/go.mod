@@ -1,6 +1,6 @@
 module github.com/loafoe/token/cmd/tokengen
 
-go 1.22.5
+go 1.22.6
 
 require (
 	github.com/loafoe/caddy-token v0.0.3
@@ -116,3 +116,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v1.0.1 // indirect
 )
+
+replace github.com/loafoe/caddy-token => ../../
