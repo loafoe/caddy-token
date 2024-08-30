@@ -48,6 +48,7 @@ func TestCaddyfileToken(t *testing.T) {
 	:12344 {
 		token {
 			file %s
+			tenantOrgClaim ort
 	    }
 	    respond 200
 	}

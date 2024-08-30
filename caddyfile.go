@@ -15,11 +15,12 @@ func init() {
 
 // UnmarshalCaddyfile sets up caddy-token from Caddyfile tokens. Syntax:
 //
-//		token {
-//		  file <token_file>
-//		  issuer <issuer_url>
-//	      injectOrgHeader true
-//		}
+//			token {
+//			  file <token_file>
+//			  issuer <issuer_url>
+//		      injectOrgHeader true
+//	          tenantOrgClaim ort
+//			}
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for d.Next() {
 		if d.NextArg() {
@@ -52,6 +53,11 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				if enable := d.Val(); enable == "false" {
 					m.injectOrgHeader = false
 				}
+			case "tenantOrgClaim":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.tenantOrgClaim = d.Val()
 			default:
 				return d.Errf("unrecognized subdirective '%s'", d.Val())
 			}

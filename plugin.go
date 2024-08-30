@@ -43,6 +43,7 @@ type Middleware struct {
 	injectOrgHeader bool
 	verifier        *oidc.IDTokenVerifier
 	watcher         *fsnotify.Watcher
+	tenantOrgClaim  string
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -181,7 +182,9 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
 		type DexClaims struct {
-			ManagingOrganization string `json:"mid,omitempty"`
+			ManagingOrganization      string   `json:"mid,omitempty"`
+			ObservabilityReadTenants  []string `json:"ort,omitempty"`
+			ObservabilityWriteTenants []string `json:"owt,omitempty"`
 			jwt.RegisteredClaims
 		}
 		token, err := jwt.ParseWithClaims(idToken, &DexClaims{}, func(token *jwt.Token) (interface{}, error) {
@@ -198,8 +201,19 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
 		// Inject X-Scope-OrgID header
-		if m.injectOrgHeader && len(claims.ManagingOrganization) > 0 {
-			r.Header.Set(scopeIDHeader, claims.ManagingOrganization)
+		if m.injectOrgHeader {
+			switch m.tenantOrgClaim {
+			case "ort":
+				if len(claims.ObservabilityReadTenants) > 0 {
+					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityReadTenants, "|"))
+				}
+			case "owt":
+				if len(claims.ObservabilityWriteTenants) > 0 {
+					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityWriteTenants, "|"))
+				}
+			default:
+				r.Header.Set(scopeIDHeader, claims.ManagingOrganization)
+			}
 		} else {
 			m.logger.Debug("not injecting scopeIDHeader")
 		}
