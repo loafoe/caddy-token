@@ -7,7 +7,8 @@ RUN go mod download
 # Build
 COPY . .
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-RUN /go/bin/xcaddy build --with github.com/loafoe/caddy-token
+# There is no guarantee this is the latest TAG
+RUN /go/bin/xcaddy build --with github.com/loafoe/caddy-token@{{TAG}}
 
 FROM alpine:latest
 USER root
