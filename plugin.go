@@ -207,13 +207,15 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			switch m.TenantOrgClaim {
 			case "ort":
 				if len(claims.ObservabilityReadTenants) > 0 {
-					m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
-					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityReadTenants, "|"))
+					value := strings.Join(claims.ObservabilityReadTenants, "|")
+					m.logger.Info("ort X-Scope-OrgID", zap.String("value", value))
+					r.Header.Set(scopeIDHeader, value)
 				}
 			case "owt":
 				if len(claims.ObservabilityWriteTenants) > 0 {
-					m.logger.Info("owt X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
-					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityWriteTenants, "|"))
+					value := strings.Join(claims.ObservabilityWriteTenants, "|")
+					m.logger.Info("owt X-Scope-OrgID", zap.String("value", value))
+					r.Header.Set(scopeIDHeader, value)
 				}
 			default:
 				m.logger.Info("default X-Scope-OrgID", zap.String("value", claims.ManagingOrganization))
