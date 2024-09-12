@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	Prefix         = "lst_"
-	scopeIDHeader  = "X-Scope-OrgID"
-	apiKeyHeader   = "X-Api-Key"
-	tokenKeyHeader = "X-Id-Token"
+	Prefix           = "lst_"
+	scopeIDHeader    = "X-Scope-OrgID"
+	apiKeyHeader     = "X-Api-Key"
+	tokenKeyHeader   = "X-Id-Token"
+	grafanaOrgHeader = "X-Grafana-Org-Id"
 )
 
 type Key struct {
@@ -37,14 +38,15 @@ type Key struct {
 }
 
 type Middleware struct {
-	logger          *zap.Logger
-	TokenFile       string
-	tokens          map[string]Key
-	Issuer          string
-	InjectOrgHeader bool
-	verifier        *oidc.IDTokenVerifier
-	watcher         *fsnotify.Watcher
-	TenantOrgClaim  string
+	logger            *zap.Logger
+	TokenFile         string
+	tokens            map[string]Key
+	Issuer            string
+	InjectOrgHeader   bool
+	AllowUpstreamAuth bool
+	verifier          *oidc.IDTokenVerifier
+	watcher           *fsnotify.Watcher
+	TenantOrgClaim    string
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -69,8 +71,9 @@ func (m *Middleware) Validate() error {
 func (m *Middleware) Provision(ctx caddy.Context) error {
 	var err error
 
-	m.InjectOrgHeader = true // default
-	m.logger = ctx.Logger()  // g.logger is a *zap.Logger
+	m.AllowUpstreamAuth = false // default
+	m.InjectOrgHeader = true    // default
+	m.logger = ctx.Logger()     // g.logger is a *zap.Logger
 	// Create new watcher.
 	m.watcher, err = fsnotify.NewWatcher()
 	if err != nil {
@@ -156,8 +159,21 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 }
 
 func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
-	// Read API key from header
+	grafanaOrgId := r.Header.Get(grafanaOrgHeader)
+	idToken := r.Header.Get(tokenKeyHeader)
 	apiKey := r.Header.Get(apiKeyHeader)
+	// Check for upstream auth
+	upstreamAuth := r.Header.Get(scopeIDHeader)
+	if grafanaOrgId != "" {
+		m.logger.Info("Grafana Org context detected", zap.String("value", grafanaOrgId))
+	}
+	if upstreamAuth != "" {
+		m.logger.Info("upstream X-Scope-OrgID", zap.String("value", upstreamAuth))
+		if m.AllowUpstreamAuth {
+			return nil
+		}
+	}
+	// Check if API key is there inheader
 	// Try to extract token from Basic Auth
 	username, password, ok := r.BasicAuth()
 	if ok && username == "otlp" && password != "" {
@@ -176,7 +192,6 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		}
 		return nil
 	}
-	idToken := r.Header.Get(tokenKeyHeader)
 	if m.verifier != nil && idToken != "" { // OIDC flow
 		_, err := m.verifier.Verify(r.Context(), idToken)
 		if err != nil {

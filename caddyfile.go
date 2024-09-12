@@ -19,6 +19,7 @@ func init() {
 //			  file <token_file>
 //			  issuer <issuer_url>
 //		      injectOrgHeader true
+//			  allowUpstreamAuth true
 //	          tenantOrgClaim ort
 //			}
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -52,6 +53,13 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				}
 				if enable := d.Val(); enable == "false" {
 					m.InjectOrgHeader = false
+				}
+			case "allowUpstreamAuth":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				if enable := d.Val(); enable == "true" {
+					m.AllowUpstreamAuth = true
 				}
 			case "tenantOrgClaim":
 				if !d.NextArg() {
