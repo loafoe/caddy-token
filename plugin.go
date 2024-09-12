@@ -110,7 +110,8 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		zap.String("issuer", m.Issuer),
 		zap.String("tokenFile", m.TokenFile),
 		zap.Int64("apiKeyCount", int64(len(m.tokens))),
-		zap.String("TenantOrgClaim", m.TenantOrgClaim))
+		zap.String("TenantOrgClaim", m.TenantOrgClaim),
+		zap.Bool("AllowUpstreamAuth", m.AllowUpstreamAuth))
 	// start watching tokenFile
 	if m.TokenFile != "" {
 		m.logger.Info("starting watcher for token file", zap.String("tokenFile", m.TokenFile))
@@ -222,7 +223,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			switch m.TenantOrgClaim {
 			case "ort":
 				if len(claims.ObservabilityReadTenants) > 0 {
-					m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
+					m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityReadTenants, "|")))
 					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityReadTenants, "|"))
 				}
 			case "owt":
