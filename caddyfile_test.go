@@ -49,6 +49,7 @@ func TestCaddyfileToken(t *testing.T) {
 		token {
 			file %s
 			tenantOrgClaim ort
+			allowUpstreamAuth true
 	    }
 	    respond 200
 	}

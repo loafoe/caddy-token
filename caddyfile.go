@@ -23,6 +23,7 @@ func init() {
 //	          tenantOrgClaim ort
 //			}
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	m.InjectOrgHeader = true // default
 	for d.Next() {
 		if d.NextArg() {
 			return d.ArgErr()

@@ -70,10 +70,7 @@ func (m *Middleware) Validate() error {
 
 func (m *Middleware) Provision(ctx caddy.Context) error {
 	var err error
-
-	m.AllowUpstreamAuth = false // default
-	m.InjectOrgHeader = true    // default
-	m.logger = ctx.Logger()     // g.logger is a *zap.Logger
+	m.logger = ctx.Logger() // g.logger is a *zap.Logger
 	// Create new watcher.
 	m.watcher, err = fsnotify.NewWatcher()
 	if err != nil {
