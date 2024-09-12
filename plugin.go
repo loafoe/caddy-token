@@ -169,10 +169,12 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		m.logger.Info("Grafana Org context detected", zap.String("value", grafanaOrgId))
 	}
 	if upstreamAuth != "" {
-		m.logger.Info("upstream X-Scope-OrgID", zap.String("value", upstreamAuth))
+		m.logger.Info("upstream X-Scope-OrgID detected", zap.String("value", upstreamAuth))
 		if m.AllowUpstreamAuth {
+			// TODO: double check if we have a user token
 			return nil
 		}
+		m.logger.Info("ignoring upstream X-Scope-OrgID", zap.Bool("AllowUpstreamAuth", m.AllowUpstreamAuth))
 	}
 	// Check if API key is there inheader
 	// Try to extract token from Basic Auth
