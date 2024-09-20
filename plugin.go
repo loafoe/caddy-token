@@ -13,6 +13,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/fsnotify/fsnotify"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/loafoe/caddy-token/keys"
 	"go.uber.org/zap"
 	"net/http"
 	"os"
@@ -20,33 +21,23 @@ import (
 )
 
 const (
-	Prefix           = "lst_"
 	scopeIDHeader    = "X-Scope-OrgID"
 	apiKeyHeader     = "X-Api-Key"
 	tokenKeyHeader   = "X-Id-Token"
 	grafanaOrgHeader = "X-Grafana-Org-Id"
 )
 
-type Key struct {
-	Version      string   `json:"v"`
-	Token        string   `json:"t"`
-	Organization string   `json:"o"`
-	Environment  string   `json:"e"`
-	Region       string   `json:"r"`
-	Project      string   `json:"p"`
-	Scopes       []string `json:"s,omitempty"`
-}
-
 type Middleware struct {
 	logger            *zap.Logger
 	TokenFile         string
-	tokens            map[string]Key
+	tokens            map[string]keys.Key
 	Issuer            string
 	InjectOrgHeader   bool
 	AllowUpstreamAuth bool
 	verifier          *oidc.IDTokenVerifier
 	watcher           *fsnotify.Watcher
 	TenantOrgClaim    string
+	SigningKey        string
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -100,7 +91,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		}
 		m.tokens = tokens
 	}
-	if m.verifier == nil && len(m.tokens) == 0 {
+	if m.verifier == nil && len(m.tokens) == 0 && m.SigningKey == "" {
 		return fmt.Errorf("no tokens or issuer provided")
 	}
 	m.logger.Info("provisioned caddy-token middleware",
@@ -108,6 +99,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		zap.String("tokenFile", m.TokenFile),
 		zap.Int64("apiKeyCount", int64(len(m.tokens))),
 		zap.String("TenantOrgClaim", m.TenantOrgClaim),
+		zap.Bool("HasSigningKey", m.SigningKey != ""),
 		zap.Bool("AllowUpstreamAuth", m.AllowUpstreamAuth))
 	// start watching tokenFile
 	if m.TokenFile != "" {
@@ -121,7 +113,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 						return
 					}
 					if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove) {
-						tokens := make(map[string]Key)
+						tokens := make(map[string]keys.Key)
 						err = retry.Do(func() error {
 							tokens, err = m.readTokenFile(m.TokenFile)
 							return err
@@ -173,13 +165,18 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		}
 		m.logger.Info("ignoring upstream X-Scope-OrgID", zap.Bool("AllowUpstreamAuth", m.AllowUpstreamAuth))
 	}
-	// Check if API key is there inheader
+	// Check if API key is there in header
 	// Try to extract token from Basic Auth
 	username, password, ok := r.BasicAuth()
 	if ok && username == "otlp" && password != "" {
 		apiKey = password
 	}
 	if apiKey != "" { // API Key flow
+		// Check v2 API keys first
+		if ok, token, _ := keys.VerifyAPIKey(apiKey, m.SigningKey); ok {
+			r.Header.Set(scopeIDHeader, token.Organization)
+			return nil
+		}
 		token, ok := m.tokens[apiKey]
 		if !ok {
 			m.logger.Info("invalid token detected",
@@ -245,8 +242,8 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 }
 
 // readTokenFile reads a static token file and returns a map of tokens
-func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
-	tokens := make(map[string]Key)
+func (m *Middleware) readTokenFile(filename string) (map[string]keys.Key, error) {
+	tokens := make(map[string]keys.Key)
 
 	file, err := os.Open(filename)
 	if err != nil {
@@ -258,12 +255,12 @@ func (m *Middleware) readTokenFile(filename string) (map[string]Key, error) {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		var decoded Key
+		var decoded keys.Key
 		trimmedLine := strings.TrimSpace(scanner.Text())
 		if len(trimmedLine) == 0 { // Skip empty lines
 			continue
 		}
-		prefixRemoved := strings.TrimPrefix(trimmedLine, Prefix)
+		prefixRemoved := strings.TrimPrefix(trimmedLine, keys.Prefix)
 		decodedString, err := base64.StdEncoding.DecodeString(prefixRemoved)
 		if err != nil {
 			return nil, fmt.Errorf("decode token: %w", err)

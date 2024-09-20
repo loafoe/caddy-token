@@ -3,11 +3,48 @@ package token
 import (
 	"bytes"
 	"fmt"
+	"github.com/loafoe/caddy-token/keys"
+	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2/caddytest"
 )
+
+func TestCaddyfileTokenV2(t *testing.T) {
+	v2Token, err := keys.GenerateAPIKey("2", "test", "test", "test", "test", "test", []string{"test"})
+	if err != nil {
+		t.Fatalf("Failed to generate v2 token: %v", err)
+	}
+
+	// Admin API must be exposed on port 2999 to match what caddytest.Tester does
+	config := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		token {
+			tenantOrgClaim ort
+			allowUpstreamAuth true
+            signingKey test
+	    }
+	    respond 200
+	}
+	`
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(config, "caddyfile")
+
+	assert.NotEmpty(t, v2Token)
+
+	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Api-Key: " + v2Token, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
+}
 
 func TestCaddyfileToken(t *testing.T) {
 	testToken := "lst_eyJ2IjoiIiwidCI6IndWUk5TNkVRbjhVNGhTcDZETzQ4TG1OY0YiLCJvIjoidGVzdCIsImUiOiJ0ZXN0IiwiciI6InRlc3QiLCJwIjoidGVzdCJ9"
@@ -40,12 +77,13 @@ func TestCaddyfileToken(t *testing.T) {
 	config := fmt.Sprintf(`
 	{
 		skip_install_trust
-		admin localhost:2999
-		http_port 12344
+		admin 127.0.0.1:2999
         order token first
 	}
 
-	:12344 {
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
 		token {
 			file %s
 			tenantOrgClaim ort
@@ -58,6 +96,6 @@ func TestCaddyfileToken(t *testing.T) {
 	tester := caddytest.NewTester(t)
 	tester.InitServer(config, "caddyfile")
 
-	tester.AssertGetResponse("http://localhost:12344", 401, "")
-	tester.AssertPostResponseBody("http://localhost:12344", []string{"X-Api-Key: " + testToken}, bytes.NewBuffer([]byte("foo")), 200, "")
+	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Api-Key: " + testToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
 }
