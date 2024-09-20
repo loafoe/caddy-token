@@ -47,7 +47,10 @@ func TestCaddyfileTokenV2(t *testing.T) {
 }
 
 func TestCaddyfileToken(t *testing.T) {
-	testToken := "lst_eyJ2IjoiIiwidCI6IndWUk5TNkVRbjhVNGhTcDZETzQ4TG1OY0YiLCJvIjoidGVzdCIsImUiOiJ0ZXN0IiwiciI6InRlc3QiLCJwIjoidGVzdCJ9"
+	testToken, err := keys.GenerateAPIKey("1", "test", "test", "test", "test", "test", []string{"test"})
+	if err != nil {
+		t.Fatalf("Failed to generate v1 token: %v", err)
+	}
 
 	tmpFile, err := os.CreateTemp("", "testfile-*.txt")
 	if err != nil {

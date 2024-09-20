@@ -66,7 +66,7 @@ func GenerateAPIKey(version, password, org, env, region, project string, scopes 
 		if bail <= 0 {
 			return "", fmt.Errorf("failed to generate a valid token")
 		}
-		newToken.Token = generateRandomString(randomCount)
+		newToken.Token = GenerateRandomString(randomCount)
 		switch version {
 		case "1":
 			newToken.Version = "1"
@@ -100,7 +100,7 @@ func GenerateAPIKey(version, password, org, env, region, project string, scopes 
 }
 
 // generateRandomString generates a random alphanumeric string of length n.
-func generateRandomString(n int) string {
+func GenerateRandomString(n int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, n)
 	for i := range b {

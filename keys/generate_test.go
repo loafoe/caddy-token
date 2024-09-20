@@ -7,7 +7,7 @@ import (
 )
 
 func TestGenerateAPIKey(t *testing.T) {
-	password := "P0oCPjKTPWsua243"
+	password := keys.GenerateRandomString(32)
 	generated, err := keys.GenerateAPIKey("2", password, "org", "env", "region", "project", []string{"scope"})
 	if !assert.Nil(t, err) {
 		return
