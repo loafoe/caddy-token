@@ -102,3 +102,40 @@ func TestCaddyfileToken(t *testing.T) {
 	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
 	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Api-Key: " + testToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
 }
+
+func TestCaddyfileTokenV2WithEnvSecret(t *testing.T) {
+	password := keys.GenerateRandomString(32)
+	_ = os.Setenv("SIGNING_KEY", password)
+
+	v2Token, err := keys.GenerateAPIKey("2", password, "test", "test", "test", "test", []string{"test"})
+	if err != nil {
+		t.Fatalf("Failed to generate v2 token: %v", err)
+	}
+
+	// Admin API must be exposed on port 2999 to match what caddytest.Tester does
+	config := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		token {
+			tenantOrgClaim ort
+			allowUpstreamAuth true
+            signingKey {$SIGNING_KEY}
+	    }
+	    respond 200
+	}
+	`
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(config, "caddyfile")
+
+	assert.NotEmpty(t, v2Token)
+
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Api-Key: " + v2Token, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
+}

@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"github.com/loafoe/caddy-token/keys"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 // generateCmd represents the generate command
 var generateCmd = &cobra.Command{
 	Use:     "generate",
 	Aliases: []string{"g"},
-	Short:   "Generate a new token.",
+	Short:   "Generate a new token",
 	Long:    `Generate a new token. This command will generate a new token based on the parameters provided.`,
 	Run:     tokenGenerate,
 }
@@ -27,12 +28,13 @@ func tokenGenerate(cmd *cobra.Command, args []string) {
 	project, _ := cmd.Flags().GetString("project")
 	scopes, _ := cmd.Flags().GetStringSlice("scopes")
 	if org == "" || region == "" || version == "" {
-		fmt.Println("Please provide all required parameters")
-		return
+		fmt.Println("Please provide all required parameters (at least: organization, region, version)")
+		os.Exit(1)
 	}
 	apiKey, err := keys.GenerateAPIKey(version, key, org, env, region, project, scopes)
 	if err != nil {
 		fmt.Println(err)
+		os.Exit(2)
 	}
 	fmt.Println(apiKey)
 }

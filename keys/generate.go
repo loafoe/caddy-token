@@ -52,7 +52,7 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 	return true, &key, nil
 }
 
-func GenerateAPIKey(version, password, org, env, region, project string, scopes []string) (string, error) {
+func GenerateAPIKey(version, key, org, env, region, project string, scopes []string) (string, error) {
 	randomCount := 12
 	bail := 4
 	var newToken Key
@@ -81,8 +81,8 @@ func GenerateAPIKey(version, password, org, env, region, project string, scopes 
 			return fmt.Sprintf("%s%s", Prefix, key), nil
 		case "2":
 			newToken.Version = "2"
-			if password == "" {
-				return "", fmt.Errorf("pease provide a password for token version 2")
+			if key == "" {
+				return "", fmt.Errorf("pease provide a key for token version 2")
 			}
 			marshalled, _ := json.Marshal(newToken)
 			payload := base64.StdEncoding.EncodeToString(marshalled)
@@ -91,7 +91,7 @@ func GenerateAPIKey(version, password, org, env, region, project string, scopes 
 				bail = bail - 1
 				continue
 			}
-			signature := GenerateSignature(payload, password)
+			signature := GenerateSignature(payload, key)
 			return fmt.Sprintf("%s%s.%s", Prefix, payload, signature), nil
 		default:
 			return "", fmt.Errorf("invalid token version: %s", version)
@@ -99,7 +99,7 @@ func GenerateAPIKey(version, password, org, env, region, project string, scopes 
 	}
 }
 
-// generateRandomString generates a random alphanumeric string of length n.
+// GenerateRandomString generates a random alphanumeric string of length n.
 func GenerateRandomString(n int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, n)
