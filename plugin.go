@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -34,10 +35,12 @@ type Middleware struct {
 	Issuer            string
 	InjectOrgHeader   bool
 	AllowUpstreamAuth bool
+	Verify            bool
 	verifier          *oidc.IDTokenVerifier
 	watcher           *fsnotify.Watcher
 	TenantOrgClaim    string
 	SigningKey        string
+	Groups            []string
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -192,13 +195,15 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 	if m.verifier != nil && idToken != "" { // OIDC flow
 		_, err := m.verifier.Verify(r.Context(), idToken)
 		if err != nil {
-			m.logger.Info("invalid token detected", zap.Error(err))
-			return caddyhttp.Error(http.StatusUnauthorized, err)
+			if m.Verify { // Error out if verification is enabled
+				m.logger.Info("invalid token detected", zap.Error(err))
+				return caddyhttp.Error(http.StatusUnauthorized, err)
+			}
 		}
 		type DexClaims struct {
-			ManagingOrganization      string   `json:"mid,omitempty"`
 			ObservabilityReadTenants  []string `json:"ort,omitempty"`
 			ObservabilityWriteTenants []string `json:"owt,omitempty"`
+			Groups                    []string `json:"groups,omitempty"`
 			jwt.RegisteredClaims
 		}
 		token, err := jwt.ParseWithClaims(idToken, &DexClaims{}, func(token *jwt.Token) (interface{}, error) {
@@ -214,6 +219,15 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 			err := fmt.Errorf("invalid claims detected: %w", err)
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
+
+		// Check group claims
+		for _, group := range m.Groups {
+			if !slices.Contains(claims.Groups, group) {
+				m.logger.Info("missing group claim", zap.String("group", group))
+				return caddyhttp.Error(http.StatusUnauthorized, nil)
+			}
+		}
+
 		// Inject X-Scope-OrgID header
 		if m.InjectOrgHeader {
 			switch m.TenantOrgClaim {
@@ -228,8 +242,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityWriteTenants, "|"))
 				}
 			default:
-				m.logger.Info("default X-Scope-OrgID", zap.String("value", claims.ManagingOrganization))
-				r.Header.Set(scopeIDHeader, claims.ManagingOrganization)
+				m.logger.Info("not injecting X-Scope-OrgID header")
 			}
 		} else {
 			m.logger.Info("not injecting X-Scope-OrgID header")

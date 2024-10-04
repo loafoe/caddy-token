@@ -17,15 +17,22 @@ func init() {
 //
 //	token {
 //	  file <token_file>
-//	  issuer <issuer_url>
+//    jwt {
+//      issuer <issuer_url>
+//      group <value>
+//      ...
+//    }
+//    signed {
+//      key <key>
+//    }
 //	  injectOrgHeader true
 //	  allowUpstreamAuth true
 //	  tenantOrgClaim ort
-//	  signingKey <key>
 //  }
 
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	m.InjectOrgHeader = true // default
+	m.Verify = true
 	for d.Next() {
 		if d.NextArg() {
 			return d.ArgErr()
@@ -45,11 +52,44 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Errf("error resolving path: %w", err)
 				}
 				m.TokenFile = absPath
-			case "issuer":
-				if !d.NextArg() {
-					return d.ArgErr()
+			case "jwt":
+				for nesting := d.Nesting(); d.NextBlock(nesting); {
+					switch d.Val() {
+					case "verify":
+						if !d.NextArg() {
+
+							return d.ArgErr()
+						}
+						if enable := d.Val(); enable == "false" {
+							m.Verify = false
+						}
+					case "issuer":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						m.Issuer = d.Val()
+					case "group":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						group := d.Val()
+						m.Groups = append(m.Groups, group)
+					default:
+						return d.Errf("unrecognized subdirective '%s'", d.Val())
+					}
 				}
-				m.Issuer = d.Val()
+			case "signed":
+				for nesting := d.Nesting(); d.NextBlock(nesting); {
+					switch d.Val() {
+					case "key":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						m.SigningKey = d.Val()
+					default:
+						return d.Errf("unrecognized subdirective '%s'", d.Val())
+					}
+				}
 			case "injectOrgHeader":
 				if !d.NextArg() {
 					return d.ArgErr()
@@ -69,11 +109,6 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				m.TenantOrgClaim = d.Val()
-			case "signingKey":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				m.SigningKey = d.Val()
 			default:
 				return d.Errf("unrecognized subdirective '%s'", d.Val())
 			}

@@ -2,6 +2,34 @@
 
 Caddy token based authentication. Supports static tokens and JWT ID Tokens
 
+## Example config
+
+```caddyfile
+{
+    order token first
+}
+
+:3000 {
+    token {
+        jwt {
+            issuer https://dex.issuer.lan
+            group admin
+        }
+    }
+  
+    reverse_proxy https://some.service.internal {
+        header_up Host {http.reverse_proxy.upstream.hostport}
+    }
+}
+
+
+```
+
+## Development
+
+Read [Extending Caddy](https://caddyserver.com/docs/extending-caddy) to get an overview
+of what interfaces you need to implement.
+
 # building
 
 You first need to build a new caddy executable with this plugin. The easiest way is to do this with xcaddy.

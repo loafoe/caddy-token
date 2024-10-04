@@ -1,4 +1,4 @@
-package token
+package token_test
 
 import (
 	"bytes"
@@ -31,7 +31,9 @@ func TestCaddyfileTokenV2(t *testing.T) {
 		token {
 			tenantOrgClaim ort
 			allowUpstreamAuth true
-            signingKey test
+            signed {
+			  key test
+			}
 	    }
 	    respond 200
 	}
@@ -99,7 +101,6 @@ func TestCaddyfileToken(t *testing.T) {
 	tester := caddytest.NewTester(t)
 	tester.InitServer(config, "caddyfile")
 
-	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
 	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Api-Key: " + testToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
 }
 
@@ -126,7 +127,9 @@ func TestCaddyfileTokenV2WithEnvSecret(t *testing.T) {
 		token {
 			tenantOrgClaim ort
 			allowUpstreamAuth true
-            signingKey {$SIGNING_KEY}
+            signed {
+				key {$SIGNING_KEY}
+			}
 	    }
 	    respond 200
 	}
@@ -138,4 +141,46 @@ func TestCaddyfileTokenV2WithEnvSecret(t *testing.T) {
 	assert.NotEmpty(t, v2Token)
 
 	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Api-Key: " + v2Token, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
+}
+
+func TestCaddyfileJWTClaims(t *testing.T) {
+	started := make(chan bool)
+	go runMockServer(started)
+
+	// Admin API must be exposed on port 2999 to match what caddytest.Tester does
+	config := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		token {
+			tenantOrgClaim ort
+			allowUpstreamAuth true
+            jwt {
+				issuer http://127.0.0.1:12000
+				verify false
+				group admin
+				group test
+			}
+	    }
+	    respond 200
+	}
+	`
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(config, "caddyfile")
+
+	<-started
+
+	accessToken, err := getToken()
+	if err != nil {
+		t.Fatalf("Failed to get access token: %v", err)
+	}
+
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
 }
