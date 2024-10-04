@@ -1,6 +1,6 @@
 # caddy-token
 
-Caddy token based authentication. Supports static tokens and JWT ID Tokens
+Caddy token based authentication. Supports static, signed and and JWT tokens
 
 ## Example config
 
