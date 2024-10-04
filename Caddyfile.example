@@ -9,10 +9,14 @@
 		level info # Log all debug messages and above
 		format filter {
 			request>headers>X-Id-Token replace REDACTED
+			request>headers>X-Api-Token replace REDACTED
 		}
 	}
 	token {
-		#issuer https://dex.issuer.lan
+		jwt {
+		    issuer https://dex.issuer.lan
+		    group admin
+		}
 		file tokenfile
 	}
 
