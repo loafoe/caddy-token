@@ -52,7 +52,7 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 	return true, &key, nil
 }
 
-func GenerateAPIKey(version, key, org, env, region, project string, scopes []string) (string, error) {
+func GenerateAPIKey(version, key, org, env, region, project string, scopes []string) (string, string, error) {
 	randomCount := 12
 	bail := 4
 	var newToken Key
@@ -64,7 +64,7 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 	newToken.Expires = time.Now().Unix() + (60 * 60 * 24 * 365) // 1 year
 	for {
 		if bail <= 0 {
-			return "", fmt.Errorf("failed to generate a valid token")
+			return "", "", fmt.Errorf("failed to generate a valid token")
 		}
 		newToken.Token = GenerateRandomString(randomCount)
 		switch version {
@@ -78,11 +78,11 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 				continue
 			}
 			// We have a good-looking newToken, return it
-			return fmt.Sprintf("%s%s", Prefix, key), nil
+			return fmt.Sprintf("%s%s", Prefix, key), "", nil
 		case "2":
 			newToken.Version = "2"
 			if key == "" {
-				return "", fmt.Errorf("pease provide a key for token version 2")
+				return "", "", fmt.Errorf("pease provide a key for token version 2")
 			}
 			marshalled, _ := json.Marshal(newToken)
 			payload := base64.StdEncoding.EncodeToString(marshalled)
@@ -92,9 +92,9 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 				continue
 			}
 			signature := GenerateSignature(payload, key)
-			return fmt.Sprintf("%s%s.%s", Prefix, payload, signature), nil
+			return fmt.Sprintf("%s%s.%s", Prefix, payload, signature), signature, nil
 		default:
-			return "", fmt.Errorf("invalid token version: %s", version)
+			return "", "", fmt.Errorf("invalid token version: %s", version)
 		}
 	}
 }

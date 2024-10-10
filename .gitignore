@@ -2,3 +2,5 @@
 /go-hello-world
 /cmd/tokengen/tokengen
 caddy
+tokenfile
+Caddyfile

@@ -31,7 +31,7 @@ func tokenGenerate(cmd *cobra.Command, args []string) {
 		fmt.Println("Please provide all required parameters (at least: organization, region, version)")
 		os.Exit(1)
 	}
-	apiKey, err := keys.GenerateAPIKey(version, key, org, env, region, project, scopes)
+	apiKey, _, err := keys.GenerateAPIKey(version, key, org, env, region, project, scopes)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(2)

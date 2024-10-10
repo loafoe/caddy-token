@@ -8,7 +8,7 @@ import (
 
 func TestGenerateAPIKey(t *testing.T) {
 	password := keys.GenerateRandomString(32)
-	generated, err := keys.GenerateAPIKey("2", password, "org", "env", "region", "project", []string{"scope"})
+	generated, signature, err := keys.GenerateAPIKey("2", password, "org", "env", "region", "project", []string{"scope"})
 	if !assert.Nil(t, err) {
 		return
 	}
@@ -19,6 +19,7 @@ func TestGenerateAPIKey(t *testing.T) {
 	if !assert.True(t, ok) {
 		return
 	}
+	assert.NotEmpty(t, signature)
 	assert.Equal(t, "org", key.Organization)
 	assert.Equal(t, "env", key.Environment)
 	assert.Equal(t, "region", key.Region)

@@ -12,7 +12,7 @@ import (
 )
 
 func TestCaddyfileTokenV2(t *testing.T) {
-	v2Token, err := keys.GenerateAPIKey("2", "test", "test", "test", "test", "test", []string{"test"})
+	v2Token, signature, err := keys.GenerateAPIKey("2", "test", "test", "test", "test", "test", []string{"test"})
 	if err != nil {
 		t.Fatalf("Failed to generate v2 token: %v", err)
 	}
@@ -43,13 +43,14 @@ func TestCaddyfileTokenV2(t *testing.T) {
 	tester.InitServer(config, "caddyfile")
 
 	assert.NotEmpty(t, v2Token)
+	assert.NotEmpty(t, signature)
 
 	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
 	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Api-Key: " + v2Token, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
 }
 
 func TestCaddyfileToken(t *testing.T) {
-	testToken, err := keys.GenerateAPIKey("1", "test", "test", "test", "test", "test", []string{"test"})
+	testToken, _, err := keys.GenerateAPIKey("1", "test", "test", "test", "test", "test", []string{"test"})
 	if err != nil {
 		t.Fatalf("Failed to generate v1 token: %v", err)
 	}
@@ -108,7 +109,7 @@ func TestCaddyfileTokenV2WithEnvSecret(t *testing.T) {
 	password := keys.GenerateRandomString(32)
 	_ = os.Setenv("SIGNING_KEY", password)
 
-	v2Token, err := keys.GenerateAPIKey("2", password, "test", "test", "test", "test", []string{"test"})
+	v2Token, signature, err := keys.GenerateAPIKey("2", password, "test", "test", "test", "test", []string{"test"})
 	if err != nil {
 		t.Fatalf("Failed to generate v2 token: %v", err)
 	}
@@ -139,6 +140,7 @@ func TestCaddyfileTokenV2WithEnvSecret(t *testing.T) {
 	tester.InitServer(config, "caddyfile")
 
 	assert.NotEmpty(t, v2Token)
+	assert.NotEmpty(t, signature)
 
 	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Api-Key: " + v2Token, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
 }
@@ -158,17 +160,19 @@ func TestCaddyfileJWTClaims(t *testing.T) {
 	http://127.0.0.1:12344 {
 		bind 127.0.0.1
 
-		token {
-			tenantOrgClaim ort
-			allowUpstreamAuth true
+		route /* {
+		  token {
+            tenantOrgClaim ort
+            allowUpstreamAuth true
             jwt {
-				issuer http://127.0.0.1:12000
-				verify false
-				group admin
-				group test
-			}
-	    }
-	    respond 200
+                issuer http://127.0.0.1:12000
+                verify false
+                group admin
+                group test
+            }
+          }
+	      respond 200
+       }
 	}
 	`
 
