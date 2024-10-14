@@ -26,6 +26,7 @@ const (
 	apiKeyHeader     = "X-Api-Key"
 	tokenKeyHeader   = "X-Id-Token"
 	grafanaOrgHeader = "X-Grafana-Org-Id"
+	authHeader       = "Authorization"
 )
 
 type Middleware struct {
@@ -170,9 +171,19 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 	}
 	// Check if API key is there in header
 	// Try to extract token from Basic Auth
-	username, password, ok := r.BasicAuth()
-	if ok && username == "otlp" && password != "" {
+	_, password, ok := r.BasicAuth()
+	if ok && password != "" {
 		apiKey = password
+	}
+	// Also support bearer token
+	if apiKey == "" {
+		authHeader := r.Header.Get(authHeader)
+		if authHeader != "" {
+			parts := strings.Split(authHeader, " ")
+			if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+				apiKey = parts[1]
+			}
+		}
 	}
 	if apiKey != "" { // API Key flow
 		// Check v2 API keys first

@@ -82,7 +82,7 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 		case "2":
 			newToken.Version = "2"
 			if key == "" {
-				return "", "", fmt.Errorf("pease provide a key for token version 2")
+				return "", "", fmt.Errorf("please provide a key for token version 2")
 			}
 			marshalled, _ := json.Marshal(newToken)
 			payload := base64.StdEncoding.EncodeToString(marshalled)
