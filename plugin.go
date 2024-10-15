@@ -194,7 +194,7 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		token, ok := m.tokens[apiKey]
 		if !ok {
 			m.logger.Info("invalid token detected",
-				zap.String("apiKey", apiKey),
+				zap.String("apiKey", "..."+LastNChars(6, apiKey)),
 				zap.Int64("count", int64(len(m.tokens))))
 			return caddyhttp.Error(http.StatusForbidden, nil)
 		}
@@ -301,6 +301,14 @@ func (m *Middleware) readTokenFile(filename string) (map[string]keys.Key, error)
 	}
 	m.logger.Info("loaded tokens", zap.Int("apiKeyCount", len(tokens)))
 	return tokens, nil
+}
+
+// LastNChars returns the last n characters of a string.
+func LastNChars(n int, s string) string {
+	if len(s) > n {
+		return s[len(s)-n:]
+	}
+	return s
 }
 
 // Interface guards
