@@ -42,6 +42,7 @@ type Middleware struct {
 	TenantOrgClaim    string
 	SigningKey        string
 	Groups            []string
+	Scopes            []string
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -198,6 +199,17 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 				zap.Int64("count", int64(len(m.tokens))))
 			return caddyhttp.Error(http.StatusForbidden, nil)
 		}
+
+		// Check scopes
+		if len(m.Scopes) > 0 {
+			for _, scope := range m.Scopes {
+				if !slices.Contains(token.Scopes, scope) {
+					m.logger.Info("missing required scope", zap.String("scope", scope))
+					return caddyhttp.Error(http.StatusForbidden, nil)
+				}
+			}
+		}
+
 		if m.InjectOrgHeader {
 			r.Header.Set(scopeIDHeader, token.Organization)
 		}

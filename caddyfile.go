@@ -6,7 +6,15 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"path/filepath"
+	"slices"
+	"strings"
 )
+
+var allowedScopes = []string{
+	"logging",
+	"metrics",
+	"tracing",
+}
 
 func init() {
 	caddy.RegisterModule(&Middleware{})
@@ -24,6 +32,7 @@ func init() {
 //    }
 //    signed {
 //      key <key>
+//      scope <value>
 //    }
 //	  injectOrgHeader true
 //	  allowUpstreamAuth true
@@ -86,6 +95,15 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.ArgErr()
 						}
 						m.SigningKey = d.Val()
+					case "scope":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						scope := d.Val()
+						if !slices.Contains(allowedScopes, scope) {
+							return d.Errf("unsupported scope '%s', allowed: %s", d.Val(), strings.Join(allowedScopes, ","))
+						}
+						m.Scopes = append(m.Scopes, scope)
 					default:
 						return d.Errf("unrecognized subdirective '%s'", d.Val())
 					}
