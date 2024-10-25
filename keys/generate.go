@@ -52,7 +52,7 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 	return true, &key, nil
 }
 
-func GenerateAPIKey(version, key, org, env, region, project string, scopes []string) (string, string, error) {
+func GenerateAPIKey(version, key, org, env, region, project string, scopes []string, expiresAt time.Time) (string, string, error) {
 	randomCount := 12
 	bail := 4
 	var newToken Key
@@ -61,7 +61,7 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 	newToken.Region = region
 	newToken.Project = project
 	newToken.Scopes = scopes
-	newToken.Expires = time.Now().Unix() + (60 * 60 * 24 * 365) // 1 year
+	newToken.Expires = expiresAt.Unix()
 	for {
 		if bail <= 0 {
 			return "", "", fmt.Errorf("failed to generate a valid token")

@@ -4,11 +4,13 @@ import (
 	"github.com/loafoe/caddy-token/keys"
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 )
 
 func TestGenerateAPIKey(t *testing.T) {
 	password := keys.GenerateRandomString(32)
-	generated, signature, err := keys.GenerateAPIKey("2", password, "org", "env", "region", "project", []string{"scope"})
+	expires := time.Now()
+	generated, signature, err := keys.GenerateAPIKey("2", password, "org", "env", "region", "project", []string{"scope"}, expires)
 	if !assert.Nil(t, err) {
 		return
 	}
@@ -25,4 +27,5 @@ func TestGenerateAPIKey(t *testing.T) {
 	assert.Equal(t, "region", key.Region)
 	assert.Equal(t, "project", key.Project)
 	assert.Equal(t, []string{"scope"}, key.Scopes)
+	assert.Equal(t, expires.Unix(), key.Expires)
 }

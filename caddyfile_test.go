@@ -7,12 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/caddyserver/caddy/v2/caddytest"
 )
 
 func TestCaddyfileTokenV2(t *testing.T) {
-	v2Token, signature, err := keys.GenerateAPIKey("2", "test", "test", "test", "test", "test", []string{"test"})
+	oneHourFromNow := time.Now().Add(time.Hour)
+	v2Token, signature, err := keys.GenerateAPIKey("2", "test", "test", "test", "test", "test", []string{"test"}, oneHourFromNow)
 	if err != nil {
 		t.Fatalf("Failed to generate v2 token: %v", err)
 	}
@@ -50,7 +52,8 @@ func TestCaddyfileTokenV2(t *testing.T) {
 }
 
 func TestCaddyfileToken(t *testing.T) {
-	testToken, _, err := keys.GenerateAPIKey("1", "test", "test", "test", "test", "test", []string{"test"})
+	oneHourFromNow := time.Now().Add(time.Hour)
+	testToken, _, err := keys.GenerateAPIKey("1", "test", "test", "test", "test", "test", []string{"test"}, oneHourFromNow)
 	if err != nil {
 		t.Fatalf("Failed to generate v1 token: %v", err)
 	}
@@ -108,8 +111,9 @@ func TestCaddyfileToken(t *testing.T) {
 func TestCaddyfileTokenV2WithEnvSecret(t *testing.T) {
 	password := keys.GenerateRandomString(32)
 	_ = os.Setenv("SIGNING_KEY", password)
+	oneHourFromNow := time.Now().Add(time.Hour)
 
-	v2Token, signature, err := keys.GenerateAPIKey("2", password, "test", "test", "test", "test", []string{"test"})
+	v2Token, signature, err := keys.GenerateAPIKey("2", password, "test", "test", "test", "test", []string{"test"}, oneHourFromNow)
 	if err != nil {
 		t.Fatalf("Failed to generate v2 token: %v", err)
 	}
