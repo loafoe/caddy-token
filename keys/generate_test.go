@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestGenerateAPIKey(t *testing.T) {
+func TestGenerateAPIKeyV2(t *testing.T) {
 	password := keys.GenerateRandomString(32)
 	expires := time.Now()
 	generated, signature, err := keys.GenerateAPIKey("2", password, "org", "env", "region", "project", []string{"scope"}, expires)
@@ -28,4 +28,23 @@ func TestGenerateAPIKey(t *testing.T) {
 	assert.Equal(t, "project", key.Project)
 	assert.Equal(t, []string{"scope"}, key.Scopes)
 	assert.Equal(t, expires.Unix(), key.Expires)
+}
+
+func TestGenerateAPIKeyV3(t *testing.T) {
+	password := keys.GenerateRandomString(32)
+	expires := time.Now()
+	generated, signature, err := keys.GenerateAPIKey("3", password, "org", "env", "region", "project", []string{"scope"}, expires)
+	if !assert.Nil(t, err) {
+		return
+	}
+	ok, key, err := keys.VerifyAPIKey(generated, password)
+	if !assert.Nil(t, err) {
+		return
+	}
+	if !assert.True(t, ok) {
+		return
+	}
+	assert.Empty(t, signature)
+	assert.Equal(t, "org", key.Organization)
+	assert.Equal(t, "3", key.Version)
 }
