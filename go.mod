@@ -5,7 +5,7 @@ go 1.23
 require (
 	github.com/avast/retry-go/v4 v4.6.0
 	github.com/caddyserver/caddy/v2 v2.8.4
-	github.com/coreos/go-oidc/v3 v3.11.0
+	github.com/coreos/go-oidc/v3 v3.12.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
