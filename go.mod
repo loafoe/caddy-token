@@ -3,7 +3,7 @@ module github.com/loafoe/caddy-token
 go 1.23
 
 require (
-	github.com/avast/retry-go/v4 v4.6.0
+	github.com/avast/retry-go/v4 v4.6.1
 	github.com/caddyserver/caddy/v2 v2.9.1
 	github.com/coreos/go-oidc/v3 v3.12.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
