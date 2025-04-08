@@ -6,7 +6,7 @@ toolchain go1.24.1
 require (
 	github.com/avast/retry-go/v4 v4.6.1
 	github.com/caddyserver/caddy/v2 v2.9.1
-	github.com/coreos/go-oidc/v3 v3.13.0
+	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
