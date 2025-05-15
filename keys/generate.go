@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -78,9 +79,10 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 
 }
 
-func GenerateAPIKey(version, key, org, env, region, project string, scopes []string, expiresAt time.Time) (string, string, error) {
-	randomCount := 12
-	bail := 4
+// GenerateDeterministicAPIKey generates an API key with a given random string value.
+// Instead of regenerating the random string when encountering base64 padding,
+// it appends digits to the random string until the padding is gone.
+func GenerateDeterministicAPIKey(version, key, org, env, region, project string, scopes []string, expiresAt time.Time, randomString string) (string, string, error) {
 	var newToken Key
 	newToken.Organization = org
 	newToken.Environment = env
@@ -88,56 +90,112 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 	newToken.Project = project
 	newToken.Scopes = scopes
 	newToken.Expires = expiresAt.Unix()
+
+	// Use the randomString as the token value
+	newToken.Token = randomString
+
+	// Check key length for version 3
 	if version == "3" && len(key) < 16 {
 		return "", "", fmt.Errorf("key must be at least 16 characters long for token version 3")
 	}
-	for {
-		if bail <= 0 {
-			return "", "", fmt.Errorf("failed to generate a valid token")
+
+	switch version {
+	case "1":
+		newToken.Version = "1"
+
+		// Try appending digits from 0-9 to remove padding, as per requirement
+		var finalKey string
+		var found bool
+
+		for counter := 0; counter < 10; counter++ {
+			modifiedToken := newToken
+			modifiedToken.Token = randomString + strconv.Itoa(counter)
+			marshalledData, _ := json.Marshal(modifiedToken)
+			finalKey = base64.StdEncoding.EncodeToString(marshalledData)
+			if !strings.HasSuffix(finalKey, "=") {
+				found = true
+				break
+			}
 		}
-		newToken.Token = GenerateRandomString(randomCount)
-		switch version {
-		case "1":
-			newToken.Version = "1"
-			marshalled, _ := json.Marshal(newToken)
-			key := base64.StdEncoding.EncodeToString(marshalled)
-			if strings.HasSuffix(key, "=") {
-				randomCount = randomCount + 1
-				bail = bail - 1
-				continue
-			}
-			// We have a good-looking newToken, return it
-			return fmt.Sprintf("%s%s", Prefix, key), "", nil
-		case "2":
-			newToken.Version = "2"
-			if key == "" {
-				return "", "", fmt.Errorf("please provide a key for token version 2")
-			}
-			marshalled, _ := json.Marshal(newToken)
-			payload := base64.StdEncoding.EncodeToString(marshalled)
-			if strings.HasSuffix(payload, "=") {
-				randomCount = randomCount + 1
-				bail = bail - 1
-				continue
-			}
-			signature := GenerateSignature(payload, key)
-			return fmt.Sprintf("%s%s.%s", Prefix, payload, signature), signature, nil
-		case "3":
-			newToken.Version = "3"
-			if key == "" {
-				return "", "", fmt.Errorf("please provide a key for token version 3")
-			}
-			marshalled, _ := json.Marshal(newToken)
-			ciphertext, err := encrypt(marshalled, []byte(key))
-			if err != nil {
-				return "", "", fmt.Errorf("encrypt error: %w", err)
-			}
-			encoded := hex.EncodeToString(ciphertext)
-			return fmt.Sprintf("%s%s", Prefix, encoded), "", nil
-		default:
-			return "", "", fmt.Errorf("invalid token version: %s", version)
+
+		if !found {
+			// If no digit helps, we'll keep the original string
+			// but strip the padding in the final encoded token
+			modifiedToken := newToken
+			modifiedToken.Token = randomString
+			marshalledData, _ := json.Marshal(modifiedToken)
+			finalKey = base64.StdEncoding.EncodeToString(marshalledData)
+			finalKey = strings.TrimRight(finalKey, "=") // Remove padding manually
 		}
+
+		// Return the token
+		return fmt.Sprintf("%s%s", Prefix, finalKey), "", nil
+
+	case "2":
+		newToken.Version = "2"
+		if key == "" {
+			return "", "", fmt.Errorf("please provide a key for token version 2")
+		}
+
+		// Try appending digits from 0-9 to remove padding, as per requirement
+		var payload string
+		var found bool
+
+		for counter := 0; counter < 10; counter++ {
+			modifiedToken := newToken
+			modifiedToken.Token = randomString + strconv.Itoa(counter)
+			marshalledData, _ := json.Marshal(modifiedToken)
+			payload = base64.StdEncoding.EncodeToString(marshalledData)
+			if !strings.HasSuffix(payload, "=") {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			// If no digit helps, just use the final payload with padding removed
+			modifiedToken := newToken
+			modifiedToken.Token = randomString
+			marshalledData, _ := json.Marshal(modifiedToken)
+			payload = base64.StdEncoding.EncodeToString(marshalledData)
+			payload = strings.TrimRight(payload, "=") // Remove padding manually
+		}
+
+		signature := GenerateSignature(payload, key)
+		return fmt.Sprintf("%s%s.%s", Prefix, payload, signature), signature, nil
+
+	case "3":
+		newToken.Version = "3"
+		newToken.Token = randomString
+
+		if key == "" {
+			return "", "", fmt.Errorf("please provide a key for token version 3")
+		}
+
+		marshalled, _ := json.Marshal(newToken)
+		ciphertext, err := encrypt(marshalled, []byte(key))
+		if err != nil {
+			return "", "", fmt.Errorf("encrypt error: %w", err)
+		}
+		encoded := hex.EncodeToString(ciphertext)
+		return fmt.Sprintf("%s%s", Prefix, encoded), "", nil
+
+	default:
+		return "", "", fmt.Errorf("invalid token version: %s", version)
 	}
+}
+
+func GenerateAPIKey(version, key, org, env, region, project string, scopes []string, expiresAt time.Time) (string, string, error) {
+	// Start with a sufficiently long random string to avoid padding issues
+	randomCount := 16
+
+	if version == "3" && len(key) < 16 {
+		return "", "", fmt.Errorf("key must be at least 16 characters long for token version 3")
+	}
+
+	// Generate a random string and use the deterministic function
+	randomString := GenerateRandomString(randomCount)
+	return GenerateDeterministicAPIKey(version, key, org, env, region, project, scopes, expiresAt, randomString)
 }
 
 // GenerateRandomString generates a random alphanumeric string of length n.
