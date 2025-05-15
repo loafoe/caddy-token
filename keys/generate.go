@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -103,29 +102,35 @@ func GenerateDeterministicAPIKey(version, key, org, env, region, project string,
 	case "1":
 		newToken.Version = "1"
 
-		// Try appending digits from 0-9 to remove padding, as per requirement
+		// Keep adding digits (0-9) to grow the token until the padding is gone
 		var finalKey string
 		var found bool
 
-		for counter := 0; counter < 10; counter++ {
-			modifiedToken := newToken
-			modifiedToken.Token = randomString + strconv.Itoa(counter)
-			marshalledData, _ := json.Marshal(modifiedToken)
-			finalKey = base64.StdEncoding.EncodeToString(marshalledData)
-			if !strings.HasSuffix(finalKey, "=") {
-				found = true
-				break
+		// Start with the original token
+		growingToken := randomString
+		// Try up to 10 additions (since we have 10 digits)
+		for attempt := 0; attempt < 10 && !found; attempt++ {
+			// Add each digit 0-9 in sequence
+			for _, digit := range []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"} {
+				// Add the current digit to our growing token
+				growingToken += digit
+
+				// Try with the new token
+				modifiedToken := newToken
+				modifiedToken.Token = growingToken
+				marshalledData, _ := json.Marshal(modifiedToken)
+				finalKey = base64.StdEncoding.EncodeToString(marshalledData)
+
+				if !strings.HasSuffix(finalKey, "=") {
+					found = true
+					break
+				}
 			}
 		}
 
 		if !found {
-			// If no digit helps, we'll keep the original string
-			// but strip the padding in the final encoded token
-			modifiedToken := newToken
-			modifiedToken.Token = randomString
-			marshalledData, _ := json.Marshal(modifiedToken)
-			finalKey = base64.StdEncoding.EncodeToString(marshalledData)
-			finalKey = strings.TrimRight(finalKey, "=") // Remove padding manually
+			// If no digit combination works, error out instead of trimming padding
+			return "", "", fmt.Errorf("could not generate a token without padding for version 1")
 		}
 
 		// Return the token
@@ -137,28 +142,35 @@ func GenerateDeterministicAPIKey(version, key, org, env, region, project string,
 			return "", "", fmt.Errorf("please provide a key for token version 2")
 		}
 
-		// Try appending digits from 0-9 to remove padding, as per requirement
+		// Keep adding digits (0-9) to grow the token until the padding is gone
 		var payload string
 		var found bool
 
-		for counter := 0; counter < 10; counter++ {
-			modifiedToken := newToken
-			modifiedToken.Token = randomString + strconv.Itoa(counter)
-			marshalledData, _ := json.Marshal(modifiedToken)
-			payload = base64.StdEncoding.EncodeToString(marshalledData)
-			if !strings.HasSuffix(payload, "=") {
-				found = true
-				break
+		// Start with the original token
+		growingToken := randomString
+		// Try up to 10 additions (since we have 10 digits)
+		for attempt := 0; attempt < 10 && !found; attempt++ {
+			// Add each digit 0-9 in sequence
+			for _, digit := range []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"} {
+				// Add the current digit to our growing token
+				growingToken += digit
+
+				// Try with the new token
+				modifiedToken := newToken
+				modifiedToken.Token = growingToken
+				marshalledData, _ := json.Marshal(modifiedToken)
+				payload = base64.StdEncoding.EncodeToString(marshalledData)
+
+				if !strings.HasSuffix(payload, "=") {
+					found = true
+					break
+				}
 			}
 		}
 
 		if !found {
-			// If no digit helps, just use the final payload with padding removed
-			modifiedToken := newToken
-			modifiedToken.Token = randomString
-			marshalledData, _ := json.Marshal(modifiedToken)
-			payload = base64.StdEncoding.EncodeToString(marshalledData)
-			payload = strings.TrimRight(payload, "=") // Remove padding manually
+			// If no digit combination works, error out instead of trimming padding
+			return "", "", fmt.Errorf("could not generate a token without padding for version 2")
 		}
 
 		signature := GenerateSignature(payload, key)
