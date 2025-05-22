@@ -45,17 +45,17 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 	case "2":
 		payload := split[0]
 		signature := split[1]
-		if !VerifySignature(payload, signature, password) {
-			return false, nil, fmt.Errorf("signature mismatch")
-		}
+
 		decodedString, err := base64.StdEncoding.DecodeString(payload)
 		if err != nil {
 			return false, nil, fmt.Errorf("decode token: %w", err)
 		}
-
 		err = json.Unmarshal([]byte(decodedString), &key)
 		if err != nil {
 			return false, nil, fmt.Errorf("unmarshal token: %w '%s'", err, decodedString)
+		}
+		if !VerifySignature(payload, signature, password) {
+			return false, &key, fmt.Errorf("signature mismatch")
 		}
 		return true, &key, nil
 	case "3":
