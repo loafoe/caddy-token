@@ -42,7 +42,14 @@ func TestVerifyAPIKeyWithFieldValidation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Generate token
-			token, _, err := keys.GenerateDeterministicAPIKey(tc.version, password, org, env, region, project, scopes, expires, randomString)
+			token, _, err := keys.GenerateDeterministicAPIKey(tc.version, password,
+				keys.WithToken(randomString),
+				keys.WithOrganization(org),
+				keys.WithEnvironment(env),
+				keys.WithRegion(region),
+				keys.WithProject(project),
+				keys.WithScopes(scopes),
+				keys.WithExpires(expires.Unix()))
 			if !assert.Nil(t, err, "Should generate token without error") {
 				return
 			}
@@ -87,7 +94,14 @@ func TestVerifyAPIKeyInvalidSignature(t *testing.T) {
 	expires := time.Now().Add(time.Hour)
 	randomString := "abcdefghijklmnopqr123456"
 
-	token, _, err := keys.GenerateDeterministicAPIKey("2", password, "org", "env", "region", "project", []string{"scope"}, expires, randomString)
+	token, _, err := keys.GenerateDeterministicAPIKey("2", password,
+		keys.WithToken(randomString),
+		keys.WithOrganization("org"),
+		keys.WithEnvironment("env"),
+		keys.WithRegion("region"),
+		keys.WithProject("project"),
+		keys.WithScopes([]string{"scope"}),
+		keys.WithExpires(expires.Unix()))
 	if !assert.Nil(t, err) {
 		return
 	}

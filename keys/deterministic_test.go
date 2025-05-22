@@ -16,7 +16,14 @@ func TestGenerateDeterministicAPIKey(t *testing.T) {
 
 	// Skip v1 tests and focus on v2 and v3 which are more commonly used
 	// Test v2 token directly
-	generatedV2, signatureV2, err := keys.GenerateDeterministicAPIKey("2", password, "org", "env", "region", "project", []string{"scope"}, expires, randomString)
+	generatedV2, signatureV2, err := keys.GenerateDeterministicAPIKey("2", password,
+		keys.WithToken(randomString),
+		keys.WithOrganization("org"),
+		keys.WithEnvironment("env"),
+		keys.WithRegion("region"),
+		keys.WithProject("project"),
+		keys.WithScopes([]string{"scope"}),
+		keys.WithExpires(expires.Unix()))
 	if !assert.Nil(t, err) {
 		return
 	}
@@ -47,14 +54,28 @@ func TestGenerateDeterministicAPIKey(t *testing.T) {
 	assert.Equal(t, expires.Unix(), key.Expires)
 
 	// Test that the same randomString produces the same token
-	generatedV2Again, _, err := keys.GenerateDeterministicAPIKey("2", password, "org", "env", "region", "project", []string{"scope"}, expires, randomString)
+	generatedV2Again, _, err := keys.GenerateDeterministicAPIKey("2", password,
+		keys.WithToken(randomString),
+		keys.WithOrganization("org"),
+		keys.WithEnvironment("env"),
+		keys.WithRegion("region"),
+		keys.WithProject("project"),
+		keys.WithScopes([]string{"scope"}),
+		keys.WithExpires(expires.Unix()))
 	if !assert.Nil(t, err) {
 		return
 	}
 	assert.Equal(t, generatedV2, generatedV2Again, "Same input should produce same token")
 
 	// Test with v3 token
-	generatedV3, signatureV3, err := keys.GenerateDeterministicAPIKey("3", password, "org", "env", "region", "project", []string{"scope"}, expires, randomString)
+	generatedV3, signatureV3, err := keys.GenerateDeterministicAPIKey("3", password,
+		keys.WithToken(randomString),
+		keys.WithOrganization("org"),
+		keys.WithEnvironment("env"),
+		keys.WithRegion("region"),
+		keys.WithProject("project"),
+		keys.WithScopes([]string{"scope"}),
+		keys.WithExpires(expires.Unix()))
 	if !assert.Nil(t, err) {
 		return
 	}

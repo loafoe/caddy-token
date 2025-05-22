@@ -81,33 +81,38 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 // GenerateDeterministicAPIKey generates an API key with a given random string value.
 // Instead of regenerating the random string when encountering base64 padding,
 // it appends digits to the random string until the padding is gone.
-func GenerateDeterministicAPIKey(version, key, org, env, region, project string, scopes []string, expiresAt time.Time, randomString string) (string, string, error) {
-	var newToken Key
-	newToken.Organization = org
-	newToken.Environment = env
-	newToken.Region = region
-	newToken.Project = project
-	newToken.Scopes = scopes
-	newToken.Expires = expiresAt.Unix()
+func GenerateDeterministicAPIKey(version string, signingKey string, opts ...OptionFunc) (string, string, error) {
+	// Create a key request object
+	kr := &keyRequest{
+		k:          Key{Version: version},
+		signingKey: signingKey,
+	}
 
-	// Use the randomString as the token value
-	newToken.Token = randomString
+	// Apply all options to the key request
+	for _, opt := range opts {
+		if err := opt(kr); err != nil {
+			return "", "", err
+		}
+	}
+
+	// We need to retrieve the token from the Key structure
+	token := kr.k.Token
 
 	// Check key length for version 3
-	if version == "3" && len(key) < 16 {
+	if version == "3" && len(kr.signingKey) < 16 {
 		return "", "", fmt.Errorf("key must be at least 16 characters long for token version 3")
 	}
 
 	switch version {
 	case "1":
-		newToken.Version = "1"
+		kr.k.Version = "1"
 
 		// Keep adding digits (0-9) to grow the token until the padding is gone
 		var finalKey string
 		var found bool
 
 		// Start with the original token
-		growingToken := randomString
+		growingToken := token
 		// Try up to 10 additions (since we have 10 digits)
 		for attempt := 0; attempt < 10 && !found; attempt++ {
 			// Add each digit 0-9 in sequence
@@ -116,7 +121,7 @@ func GenerateDeterministicAPIKey(version, key, org, env, region, project string,
 				growingToken += digit
 
 				// Try with the new token
-				modifiedToken := newToken
+				modifiedToken := kr.k
 				modifiedToken.Token = growingToken
 				marshalledData, _ := json.Marshal(modifiedToken)
 				finalKey = base64.StdEncoding.EncodeToString(marshalledData)
@@ -137,8 +142,8 @@ func GenerateDeterministicAPIKey(version, key, org, env, region, project string,
 		return fmt.Sprintf("%s%s", Prefix, finalKey), "", nil
 
 	case "2":
-		newToken.Version = "2"
-		if key == "" {
+		kr.k.Version = "2"
+		if kr.signingKey == "" {
 			return "", "", fmt.Errorf("please provide a key for token version 2")
 		}
 
@@ -147,7 +152,7 @@ func GenerateDeterministicAPIKey(version, key, org, env, region, project string,
 		var found bool
 
 		// Start with the original token
-		growingToken := randomString
+		growingToken := token
 		// Try up to 10 additions (since we have 10 digits)
 		for attempt := 0; attempt < 10 && !found; attempt++ {
 			// Add each digit 0-9 in sequence
@@ -156,7 +161,7 @@ func GenerateDeterministicAPIKey(version, key, org, env, region, project string,
 				growingToken += digit
 
 				// Try with the new token
-				modifiedToken := newToken
+				modifiedToken := kr.k
 				modifiedToken.Token = growingToken
 				marshalledData, _ := json.Marshal(modifiedToken)
 				payload = base64.StdEncoding.EncodeToString(marshalledData)
@@ -173,19 +178,19 @@ func GenerateDeterministicAPIKey(version, key, org, env, region, project string,
 			return "", "", fmt.Errorf("could not generate a token without padding for version 2")
 		}
 
-		signature := GenerateSignature(payload, key)
+		signature := GenerateSignature(payload, kr.signingKey)
 		return fmt.Sprintf("%s%s.%s", Prefix, payload, signature), signature, nil
 
 	case "3":
-		newToken.Version = "3"
-		newToken.Token = randomString
+		kr.k.Version = "3"
+		kr.k.Token = token
 
-		if key == "" {
+		if kr.signingKey == "" {
 			return "", "", fmt.Errorf("please provide a key for token version 3")
 		}
 
-		marshalled, _ := json.Marshal(newToken)
-		ciphertext, err := encrypt(marshalled, []byte(key))
+		marshalled, _ := json.Marshal(kr.k)
+		ciphertext, err := encrypt(marshalled, []byte(kr.signingKey))
 		if err != nil {
 			return "", "", fmt.Errorf("encrypt error: %w", err)
 		}
@@ -207,7 +212,15 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 
 	// Generate a random string and use the deterministic function
 	randomString := GenerateRandomString(randomCount)
-	return GenerateDeterministicAPIKey(version, key, org, env, region, project, scopes, expiresAt, randomString)
+	return GenerateDeterministicAPIKey(version, "",
+		WithSigningKey(key),
+		WithToken(randomString),
+		WithOrganization(org),
+		WithEnvironment(env),
+		WithRegion(region),
+		WithProject(project),
+		WithScopes(scopes),
+		WithExpires(expiresAt.Unix()))
 }
 
 // GenerateRandomString generates a random alphanumeric string of length n.
