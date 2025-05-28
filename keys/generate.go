@@ -33,6 +33,15 @@ func VerifySignature(payload, providedSignature, password string) bool {
 
 func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 	var key Key
+
+	// Check for empty inputs
+	if apiKey == "" {
+		return false, nil, fmt.Errorf("empty API key")
+	}
+	if password == "" {
+		return false, nil, fmt.Errorf("empty password")
+	}
+
 	prefixRemoved := strings.TrimPrefix(apiKey, Prefix)
 	var version string
 	split := strings.Split(prefixRemoved, ".")
@@ -43,6 +52,10 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 	}
 	switch version {
 	case "2":
+		if len(split) < 2 {
+			return false, nil, fmt.Errorf("invalid format for version 2 token: missing signature part")
+		}
+
 		payload := split[0]
 		signature := split[1]
 
@@ -59,6 +72,10 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 		}
 		return true, &key, nil
 	case "3":
+		if len(split) == 0 || split[0] == "" {
+			return false, nil, fmt.Errorf("invalid format for version 3 token: missing payload")
+		}
+
 		decodedString, err := hex.DecodeString(split[0])
 		if err != nil {
 			return false, nil, fmt.Errorf("decode token: %w", err)
@@ -67,6 +84,12 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 		if err != nil {
 			return false, nil, fmt.Errorf("decrypt token: %w", err)
 		}
+
+		// Check if decrypted data is valid JSON
+		if len(decrypted) == 0 {
+			return false, nil, fmt.Errorf("empty decrypted token data")
+		}
+
 		err = json.Unmarshal([]byte(decrypted), &key)
 		if err != nil {
 			return false, nil, fmt.Errorf("unmarshal token: %w '%s'", err, decrypted)
@@ -259,6 +282,11 @@ func encrypt(plaintext []byte, key []byte) ([]byte, error) {
 }
 
 func decrypt(ciphertext []byte, key []byte) ([]byte, error) {
+	// Check if key is valid
+	if len(key) == 0 {
+		return nil, fmt.Errorf("empty encryption key")
+	}
+
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -273,9 +301,18 @@ func decrypt(ciphertext []byte, key []byte) ([]byte, error) {
 	// Get the nonce size
 	nonceSize := aesGCM.NonceSize()
 
-	// Extract the nonce
+	// Check if ciphertext is long enough to contain a nonce
+	if len(ciphertext) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short: expected at least %d bytes for nonce, got %d", nonceSize, len(ciphertext))
+	}
 
+	// Extract the nonce
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
+	// Check if remaining ciphertext is valid (must be at least 16 bytes for GCM tag)
+	if len(ciphertext) < 16 {
+		return nil, fmt.Errorf("ciphertext too short after nonce extraction: expected at least 16 bytes for GCM tag, got %d", len(ciphertext))
+	}
 
 	// Decrypt and verify the message
 	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
