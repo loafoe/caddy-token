@@ -5,7 +5,7 @@ go 1.25
 require (
 	github.com/avast/retry-go/v4 v4.6.1
 	github.com/caddyserver/caddy/v2 v2.10.2
-	github.com/coreos/go-oidc/v3 v3.14.1
+	github.com/coreos/go-oidc/v3 v3.15.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
