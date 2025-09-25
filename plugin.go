@@ -43,6 +43,9 @@ type Middleware struct {
 	SigningKey        string
 	Groups            []string
 	Scopes            []string
+	ClientCA          bool
+	Debug             bool
+	DefaultOrg        string
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -53,7 +56,7 @@ func (m *Middleware) CaddyModule() caddy.ModuleInfo {
 }
 
 func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	err := m.checkTokenAndInjectHeaders(r)
+	err := m.CheckTokenAndInjectHeaders(r)
 	if err != nil {
 		return err
 	}
@@ -96,8 +99,8 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		}
 		m.tokens = tokens
 	}
-	if m.verifier == nil && len(m.tokens) == 0 && m.SigningKey == "" {
-		return fmt.Errorf("no tokens or issuer provided")
+	if m.verifier == nil && len(m.tokens) == 0 && m.SigningKey == "" && !m.ClientCA {
+		return fmt.Errorf("no tokens, issuer, or client CA provided")
 	}
 	m.logger.Info("provisioned caddy-token middleware",
 		zap.String("issuer", m.Issuer),
@@ -153,7 +156,7 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
+func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 	grafanaOrgId := r.Header.Get(grafanaOrgHeader)
 	idToken := r.Header.Get(tokenKeyHeader)
 	apiKey := r.Header.Get(apiKeyHeader)
@@ -170,6 +173,20 @@ func (m *Middleware) checkTokenAndInjectHeaders(r *http.Request) error {
 		}
 		m.logger.Info("ignoring upstream X-Scope-OrgID", zap.Bool("AllowUpstreamAuth", m.AllowUpstreamAuth))
 	}
+	
+	// Check for client certificate authentication first
+	if m.ClientCA && r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		if m.Debug {
+			m.logger.Info("client certificate detected", 
+				zap.Int("certCount", len(r.TLS.PeerCertificates)),
+				zap.String("subject", r.TLS.PeerCertificates[0].Subject.String()))
+		}
+		// Set the default organization header
+		r.Header.Set(scopeIDHeader, m.DefaultOrg)
+		m.logger.Info("client certificate authenticated", zap.String("defaultOrg", m.DefaultOrg))
+		return nil
+	}
+	
 	// Check if API key is there in header
 	// Try to extract token from Basic Auth
 	_, password, ok := r.BasicAuth()

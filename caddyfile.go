@@ -26,6 +26,10 @@ func init() {
 //      key <key>
 //      scope <value>
 //    }
+//    client_ca {
+//      debug <true|false>
+//      default_org <organization_name>
+//    }
 //	  injectOrgHeader true
 //	  allowUpstreamAuth true
 //	  tenantOrgClaim ort
@@ -93,6 +97,31 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 						}
 						scope := d.Val()
 						m.Scopes = append(m.Scopes, scope)
+					default:
+						return d.Errf("unrecognized subdirective '%s'", d.Val())
+					}
+				}
+			case "client_ca":
+				m.ClientCA = true // Set to true when directive is present
+				m.DefaultOrg = "anonymous" // Set default value
+				for nesting := d.Nesting(); d.NextBlock(nesting); {
+					switch d.Val() {
+					case "debug":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if debug := d.Val(); debug == "true" {
+							m.Debug = true
+						} else if debug == "false" {
+							m.Debug = false
+						} else {
+							return d.Errf("debug must be 'true' or 'false', got '%s'", debug)
+						}
+					case "default_org":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						m.DefaultOrg = d.Val()
 					default:
 						return d.Errf("unrecognized subdirective '%s'", d.Val())
 					}

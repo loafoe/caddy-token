@@ -3,8 +3,11 @@ package token_test
 import (
 	"bytes"
 	"fmt"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/loafoe/caddy-token"
 	"github.com/loafoe/caddy-token/keys"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
 	"time"
@@ -191,4 +194,179 @@ func TestCaddyfileJWTClaims(t *testing.T) {
 	}
 
 	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
+}
+
+func TestCaddyfileClientCA(t *testing.T) {
+	// Admin API must be exposed on port 2999 to match what caddytest.Tester does
+	config := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		token {
+			client_ca {
+				debug true
+				default_org "test-org"
+			}
+			allowUpstreamAuth false
+	    }
+	    respond 200
+	}
+	`
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(config, "caddyfile")
+
+	// Test that requests without client certificates are rejected
+	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
+}
+
+func TestCaddyfileClientCADefaults(t *testing.T) {
+	// Test client_ca directive with default values
+	config := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		token {
+			client_ca {
+				debug false
+			}
+			allowUpstreamAuth false
+	    }
+	    respond 200
+	}
+	`
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(config, "caddyfile")
+
+	// Test that requests without client certificates are rejected
+	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
+}
+
+func TestCaddyfileClientCAMinimal(t *testing.T) {
+	// Test client_ca directive with minimal configuration
+	config := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		token {
+			client_ca {
+			}
+			allowUpstreamAuth false
+	    }
+	    respond 200
+	}
+	`
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(config, "caddyfile")
+
+	// Test that requests without client certificates are rejected
+	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
+}
+
+func TestClientCADirectiveParsing(t *testing.T) {
+	tests := []struct {
+		name           string
+		config         string
+		expectedCA     bool
+		expectedDebug  bool
+		expectedOrg    string
+		expectError    bool
+	}{
+		{
+			name: "client_ca with all options",
+			config: `token {
+				client_ca {
+					debug true
+					default_org "custom-org"
+				}
+			}`,
+			expectedCA:    true,
+			expectedDebug: true,
+			expectedOrg:   "custom-org",
+			expectError:   false,
+		},
+		{
+			name: "client_ca with debug false",
+			config: `token {
+				client_ca {
+					debug false
+					default_org "test-org"
+				}
+			}`,
+			expectedCA:    true,
+			expectedDebug: false,
+			expectedOrg:   "test-org",
+			expectError:   false,
+		},
+		{
+			name: "client_ca with defaults",
+			config: `token {
+				client_ca {
+				}
+			}`,
+			expectedCA:    true,
+			expectedDebug: false,
+			expectedOrg:   "anonymous",
+			expectError:   false,
+		},
+		{
+			name: "client_ca with only debug",
+			config: `token {
+				client_ca {
+					debug true
+				}
+			}`,
+			expectedCA:    true,
+			expectedDebug: true,
+			expectedOrg:   "anonymous",
+			expectError:   false,
+		},
+		{
+			name: "invalid debug value",
+			config: `token {
+				client_ca {
+					debug invalid
+				}
+			}`,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser(tt.config)
+			m := &token.Middleware{}
+			
+			err := m.UnmarshalCaddyfile(d)
+			
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedCA, m.ClientCA, "ClientCA field")
+				assert.Equal(t, tt.expectedDebug, m.Debug, "Debug field")
+				assert.Equal(t, tt.expectedOrg, m.DefaultOrg, "DefaultOrg field")
+			}
+		})
+	}
 }
