@@ -2,6 +2,12 @@
 
 Tool to generate static tokens for use with the Caddy plugin
 
+## install 
+
+```shell
+go install github.com/loafoe/caddy-token/cmd/tokengen@latest
+```
+
 # usage
 
 ```shell
