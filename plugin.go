@@ -6,6 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"slices"
+	"strings"
+
 	"github.com/avast/retry-go/v4"
 	caddy "github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -15,10 +20,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/loafoe/caddy-token/keys"
 	"go.uber.org/zap"
-	"net/http"
-	"os"
-	"slices"
-	"strings"
 )
 
 const (
@@ -162,7 +163,7 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 	apiKey := r.Header.Get(apiKeyHeader)
 	// Check for upstream auth
 	upstreamAuth := r.Header.Get(scopeIDHeader)
-	if grafanaOrgId != "" {
+	if grafanaOrgId != "" && m.Debug {
 		m.logger.Info("Grafana Org context detected", zap.String("value", grafanaOrgId))
 	}
 	if upstreamAuth != "" {
@@ -173,20 +174,22 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 		}
 		m.logger.Info("ignoring upstream X-Scope-OrgID", zap.Bool("AllowUpstreamAuth", m.AllowUpstreamAuth))
 	}
-	
+
 	// Check for client certificate authentication first
 	if m.ClientCA && r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 		if m.Debug {
-			m.logger.Info("client certificate detected", 
+			m.logger.Info("client certificate detected",
 				zap.Int("certCount", len(r.TLS.PeerCertificates)),
 				zap.String("subject", r.TLS.PeerCertificates[0].Subject.String()))
 		}
 		// Set the default organization header
 		r.Header.Set(scopeIDHeader, m.DefaultOrg)
-		m.logger.Info("client certificate authenticated", zap.String("defaultOrg", m.DefaultOrg))
+		if m.Debug {
+			m.logger.Info("client certificate authenticated", zap.String("defaultOrg", m.DefaultOrg))
+		}
 		return nil
 	}
-	
+
 	// Check if API key is there in header
 	// Try to extract token from Basic Auth
 	_, password, ok := r.BasicAuth()
@@ -211,9 +214,10 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 		}
 		token, ok := m.tokens[apiKey]
 		if !ok {
-			m.logger.Info("invalid token detected",
+			m.logger.Error("invalid token detected",
 				zap.String("apiKey", "..."+LastNChars(6, apiKey)),
-				zap.Int64("count", int64(len(m.tokens))))
+				zap.Int64("count", int64(len(m.tokens))),
+				zap.String("remoteAddr", r.RemoteAddr))
 			return caddyhttp.Error(http.StatusForbidden, nil)
 		}
 
@@ -221,7 +225,9 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 		if len(m.Scopes) > 0 {
 			for _, scope := range m.Scopes {
 				if !slices.Contains(token.Scopes, scope) {
-					m.logger.Info("missing required scope", zap.String("scope", scope))
+					m.logger.Error("missing required scope",
+						zap.String("scope", scope),
+						zap.String("remoteAddr", r.RemoteAddr))
 					return caddyhttp.Error(http.StatusForbidden, nil)
 				}
 			}
@@ -236,7 +242,9 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 		_, err := m.verifier.Verify(r.Context(), idToken)
 		if err != nil {
 			if m.Verify { // Error out if verification is enabled
-				m.logger.Info("invalid token detected", zap.Error(err))
+				m.logger.Error("invalid token detected",
+					zap.Error(err),
+					zap.String("remoteAddr", r.RemoteAddr))
 				return caddyhttp.Error(http.StatusUnauthorized, err)
 			}
 		}
@@ -255,15 +263,15 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 		// Verified
 		claims, ok := token.Claims.(*DexClaims)
 		if !ok {
-			m.logger.Info("invalid claims detected", zap.Error(err))
 			err := fmt.Errorf("invalid claims detected: %w", err)
+			m.logger.Error("invalid claims detected", zap.Error(err))
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
 
 		// Check group claims
 		for _, group := range m.Groups {
 			if !slices.Contains(claims.Groups, group) {
-				m.logger.Info("missing group claim", zap.String("group", group))
+				m.logger.Error("missing group claim", zap.String("group", group))
 				return caddyhttp.Error(http.StatusUnauthorized, nil)
 			}
 		}
@@ -273,24 +281,34 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 			switch m.TenantOrgClaim {
 			case "ort":
 				if len(claims.ObservabilityReadTenants) > 0 {
-					m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityReadTenants, "|")))
+					if m.Debug {
+						m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityReadTenants, "|")))
+					}
 					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityReadTenants, "|"))
 				}
 			case "owt":
 				if len(claims.ObservabilityWriteTenants) > 0 {
-					m.logger.Info("owt X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
+					if m.Debug {
+						m.logger.Info("owt X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
+					}
 					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityWriteTenants, "|"))
 				}
 			default:
-				m.logger.Info("not injecting X-Scope-OrgID header")
+				if m.Debug {
+					m.logger.Info("not injecting X-Scope-OrgID header")
+				}
 			}
 		} else {
-			m.logger.Info("not injecting X-Scope-OrgID header")
+			if m.Debug {
+				m.logger.Info("not injecting X-Scope-OrgID header")
+			}
 		}
 		return nil
 	}
 	// No valid token found
-	m.logger.Error("no valid token found")
+	if m.Debug {
+		m.logger.Error("no valid token found")
+	}
 	return caddyhttp.Error(http.StatusUnauthorized, nil)
 }
 
