@@ -214,10 +214,12 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 		}
 		token, ok := m.tokens[apiKey]
 		if !ok {
-			m.logger.Error("invalid token detected",
-				zap.String("apiKey", "..."+LastNChars(6, apiKey)),
-				zap.Int64("count", int64(len(m.tokens))),
-				zap.String("remoteAddr", r.RemoteAddr))
+			if m.Debug {
+				m.logger.Error("invalid token detected",
+					zap.String("apiKey", "..."+LastNChars(6, apiKey)),
+					zap.Int64("count", int64(len(m.tokens))),
+					zap.String("remoteAddr", r.RemoteAddr))
+			}
 			return caddyhttp.Error(http.StatusForbidden, nil)
 		}
 
