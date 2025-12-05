@@ -1,11 +1,12 @@
 package token
 
 import (
+	"path/filepath"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"path/filepath"
 )
 
 func init() {
@@ -33,6 +34,7 @@ func init() {
 //	  injectOrgHeader true
 //	  allowUpstreamAuth true
 //	  tenantOrgClaim ort
+//    debug false
 //  }
 
 func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -101,8 +103,19 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 						return d.Errf("unrecognized subdirective '%s'", d.Val())
 					}
 				}
+			case "debug":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				if debug := d.Val(); debug == "true" {
+					m.Debug = true
+				} else if debug == "false" {
+					m.Debug = false
+				} else {
+					return d.Errf("debug must be 'true' or 'false', got '%s'", debug)
+				}
 			case "client_ca":
-				m.ClientCA = true // Set to true when directive is present
+				m.ClientCA = true          // Set to true when directive is present
 				m.DefaultOrg = "anonymous" // Set default value
 				for nesting := d.Nesting(); d.NextBlock(nesting); {
 					switch d.Val() {
