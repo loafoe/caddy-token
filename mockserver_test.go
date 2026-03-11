@@ -84,7 +84,7 @@ func runMockServer(started chan bool) {
 }
 
 func discoveryHandler(w http.ResponseWriter, r *http.Request) {
-	discovery := map[string]interface{}{
+	discovery := map[string]any{
 		"issuer":                 "http://127.0.0.1:12000",
 		"authorization_endpoint": "http://127.0.0.1:12000/authorize",
 		"token_endpoint":         "http://127.0.0.1:12000/token",
@@ -112,7 +112,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return the token in the response
-	response := map[string]interface{}{
+	response := map[string]any{
 		"access_token": tokenString,
 		"token_type":   "Bearer",
 		"expires_in":   3600,
@@ -122,7 +122,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func userinfoHandler(w http.ResponseWriter, r *http.Request) {
-	userinfo := map[string]interface{}{
+	userinfo := map[string]any{
 		"sub":    "1234567890",
 		"name":   "John Doe",
 		"email":  "john.doe@example.com",
@@ -132,9 +132,9 @@ func userinfoHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func jwksHandler(w http.ResponseWriter, r *http.Request) {
-	jwks := map[string]interface{}{
-		"keys": []interface{}{
-			map[string]interface{}{
+	jwks := map[string]any{
+		"keys": []any{
+			map[string]any{
 				"kty": "RSA",
 				"kid": "1",
 				"use": "sig",

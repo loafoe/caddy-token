@@ -260,7 +260,7 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 			Groups                    []string `json:"groups,omitempty"`
 			jwt.RegisteredClaims
 		}
-		token, err := jwt.ParseWithClaims(idToken, &DexClaims{}, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwt.ParseWithClaims(idToken, &DexClaims{}, func(token *jwt.Token) (any, error) {
 			return []byte(""), jwt.ErrTokenUnverifiable // We already verified
 		})
 		if !errors.Is(err, jwt.ErrTokenUnverifiable) {
