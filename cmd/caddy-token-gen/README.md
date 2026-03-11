@@ -1,22 +1,20 @@
-# tokengen
+# caddy-token-gen
 
 Tool to generate static tokens for use with the Caddy plugin
 
-## install 
+## install
 
 ```shell
-go install github.com/loafoe/caddy-token/cmd/tokengen@latest
+go install github.com/loafoe/caddy-token/cmd/caddy-token-gen@latest
 ```
 
 # usage
 
 ```shell
-tokengen g -e client-test -r us-east -p fake -o fake
+caddy-token-gen g -e client-test -r us-east -p fake -o fake
 ```
 
 Append the output to your static token file.
-
-```shell
 
 # license
 

@@ -4,5 +4,5 @@ toolchain go1.25.0
 
 use (
 	.
-	cmd/tokengen
+	cmd/caddy-token-gen
 )

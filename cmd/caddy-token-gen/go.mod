@@ -1,4 +1,4 @@
-module github.com/loafoe/caddy-token/cmd/tokengen
+module github.com/loafoe/caddy-token/cmd/caddy-token-gen
 
 go 1.25
 

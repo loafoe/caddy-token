@@ -303,6 +303,22 @@ The plugin checks for authentication in the following order:
    - `X-Id-Token` header
    - Verifies against configured OIDC issuer
 
+# caddy-token-gen CLI tool
+
+A companion CLI tool is available to generate static tokens for use with this plugin.
+
+## install
+
+```shell
+go install github.com/loafoe/caddy-token/cmd/caddy-token-gen@latest
+```
+
+## usage
+
+```shell
+caddy-token-gen g -e client-test -r us-east -p fake -o fake
+```
+
 # license
 
 License is Apache 2.0

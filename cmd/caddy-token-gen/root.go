@@ -11,7 +11,7 @@ import (
 var (
 	// rootCmd represents the base command when called without any subcommands
 	rootCmd = &cobra.Command{
-		Use:   "tokengen",
+		Use:   "caddy-token-gen",
 		Short: "Token generator for Caddy server",
 		Long:  `Token generator for Caddy server`,
 	}
