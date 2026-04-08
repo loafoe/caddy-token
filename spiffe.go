@@ -454,6 +454,88 @@ func trustDomainFromString(td string) spiffeid.TrustDomain {
 	return trustDomain
 }
 
+// hybridKeySource combines JWKS and Workload API sources
+// Trust domains with JWKS URLs use the JWKS cache, others use Workload API
+type hybridKeySource struct {
+	jwks      *jwksCache
+	workload  *workloadBundleSource
+	domainMap map[string]*SpiffeTrustDomain
+	logger    *zap.Logger
+}
+
+// newHybridKeySource creates a key source that uses JWKS for domains with URLs configured,
+// and Workload API for domains without JWKS URLs
+func newHybridKeySource(ctx context.Context, config *SpiffeConfig, domainMap map[string]*SpiffeTrustDomain, logger *zap.Logger) (*hybridKeySource, error) {
+	source := &hybridKeySource{
+		domainMap: domainMap,
+		logger:    logger,
+	}
+
+	// Check if any trust domain has JWKS URL configured
+	hasJWKS := false
+	hasNonJWKS := false
+	for _, td := range config.TrustDomains {
+		if td.JWKSURL != "" {
+			hasJWKS = true
+		} else {
+			hasNonJWKS = true
+		}
+	}
+
+	// Create JWKS cache if any domain has JWKS URL
+	if hasJWKS {
+		source.jwks = newJWKSCache(logger, domainMap)
+	}
+
+	// Create Workload API source if needed and socket is configured
+	socketPath := config.GetWorkloadSocket()
+	if hasNonJWKS && socketPath != "" {
+		workload, err := newWorkloadBundleSource(ctx, socketPath, logger)
+		if err != nil {
+			return nil, fmt.Errorf("creating workload bundle source: %w", err)
+		}
+		source.workload = workload
+	} else if hasNonJWKS && socketPath == "" {
+		// Log warning about trust domains without JWKS URLs and no workload socket
+		for _, td := range config.TrustDomains {
+			if td.JWKSURL == "" {
+				logger.Warn("trust domain has no JWKS URL and no workload socket configured",
+					zap.String("domain", td.Domain))
+			}
+		}
+	}
+
+	return source, nil
+}
+
+func (h *hybridKeySource) getKey(ctx context.Context, trustDomain, keyID string, forceRefresh bool) (crypto.PublicKey, error) {
+	td, ok := h.domainMap[trustDomain]
+	if !ok {
+		return nil, fmt.Errorf("unknown trust domain: %s", trustDomain)
+	}
+
+	// Use JWKS if the trust domain has a JWKS URL configured
+	if td.JWKSURL != "" {
+		if h.jwks == nil {
+			return nil, fmt.Errorf("JWKS cache not initialized for trust domain: %s", trustDomain)
+		}
+		return h.jwks.getKey(ctx, trustDomain, keyID, forceRefresh)
+	}
+
+	// Otherwise use Workload API
+	if h.workload == nil {
+		return nil, fmt.Errorf("no JWKS URL configured and workload API not available for trust domain: %s", trustDomain)
+	}
+	return h.workload.getKey(ctx, trustDomain, keyID, forceRefresh)
+}
+
+func (h *hybridKeySource) close() error {
+	if h.workload != nil {
+		return h.workload.close()
+	}
+	return nil
+}
+
 // SpiffeValidator handles SPIFFE JWT SVID validation
 type SpiffeValidator struct {
 	config    *SpiffeConfig
@@ -478,7 +560,9 @@ func NewSpiffeValidator(config *SpiffeConfig, logger *zap.Logger) *SpiffeValidat
 	}
 }
 
-// NewSpiffeValidatorWithWorkloadAPI creates a SPIFFE validator using the Workload API
+// NewSpiffeValidatorWithWorkloadAPI creates a SPIFFE validator using a hybrid approach:
+// - Trust domains with JWKS URLs use HTTP-based JWKS fetching
+// - Trust domains without JWKS URLs use the local Workload API
 func NewSpiffeValidatorWithWorkloadAPI(ctx context.Context, config *SpiffeConfig, logger *zap.Logger) (*SpiffeValidator, error) {
 	domainMap := make(map[string]*SpiffeTrustDomain)
 	for i := range config.TrustDomains {
@@ -486,14 +570,9 @@ func NewSpiffeValidatorWithWorkloadAPI(ctx context.Context, config *SpiffeConfig
 		domainMap[td.Domain] = td
 	}
 
-	socketPath := config.GetWorkloadSocket()
-	if socketPath == "" {
-		return nil, fmt.Errorf("no workload socket configured")
-	}
-
-	source, err := newWorkloadBundleSource(ctx, socketPath, logger)
+	source, err := newHybridKeySource(ctx, config, domainMap, logger)
 	if err != nil {
-		return nil, fmt.Errorf("creating workload bundle source: %w", err)
+		return nil, fmt.Errorf("creating hybrid key source: %w", err)
 	}
 
 	return &SpiffeValidator{

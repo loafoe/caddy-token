@@ -393,6 +393,67 @@ token {
 }
 ```
 
+### Cross-Cluster SPIFFE Authentication (Hybrid Mode)
+
+When you need to authenticate workloads from multiple SPIFFE trust domains - some local (same cluster) and some remote (different clusters) - you can use the hybrid mode. This combines:
+
+- **Workload API** for local trust domains (fetches JWT bundles from SPIRE Agent)
+- **JWKS URLs** for remote trust domains (fetches keys via HTTP from remote OIDC discovery endpoints)
+
+The plugin automatically routes key lookups based on whether a trust domain has `jwks_url` configured:
+- Trust domains **with** `jwks_url`: Keys fetched via HTTP from the JWKS endpoint
+- Trust domains **without** `jwks_url`: Keys fetched from the local Workload API
+
+```caddyfile
+{
+    order token first
+}
+
+:8080 {
+    token {
+        spiffe {
+            # Local SPIRE Agent socket for local trust domain
+            workload_socket unix:///run/spire/sockets/agent.sock
+            
+            # Local trust domain - uses Workload API (no jwks_url)
+            trust_domain cluster.local {
+                audience myapi
+                org_from_path true
+                org_path_index 1
+            }
+            
+            # Remote trust domain - uses JWKS URL
+            trust_domain remote-cluster.example.org {
+                jwks_url https://oidc-discovery.remote-cluster.example.org/keys
+                audience myapi
+                org_from_path true
+                org_path_index 1
+            }
+            
+            # Another remote trust domain with static org
+            trust_domain partner.example.com {
+                jwks_url https://spire.partner.example.com/.well-known/jwks.json
+                audience partner-api
+                org partner-org
+            }
+            
+            allowed_ids spiffe://cluster.local/ns/*/sa/*
+            allowed_ids spiffe://remote-cluster.example.org/ns/*/sa/*
+            allowed_ids spiffe://partner.example.com/workload/*
+            default_org anonymous
+        }
+        injectOrgHeader true
+    }
+    
+    reverse_proxy backend:3000
+}
+```
+
+This hybrid approach enables:
+- **Zero-trust cross-cluster communication**: Workloads in remote clusters can authenticate using their SPIFFE identity
+- **Federation without shared infrastructure**: Each cluster maintains its own SPIRE deployment
+- **Flexible key distribution**: Remote clusters only need to expose their JWKS endpoint (commonly via OIDC discovery)
+
 ### Combined Authentication Methods
 ```caddyfile
 {
@@ -431,10 +492,13 @@ token {
 
 1. Workloads present JWT SVIDs in the `Authorization: Bearer <token>` header
 2. The plugin extracts the SPIFFE ID from the JWT's `sub` claim (e.g., `spiffe://cluster.local/ns/prod/sa/api`)
-3. JWT signature is verified against keys from either:
-   - **Workload API**: Fetches JWT bundles directly from SPIRE Agent (recommended for Kubernetes)
-   - **JWKS URL**: Fetches keys from an HTTP endpoint
-4. The `X-Scope-OrgID` header is set based on the trust domain configuration
+3. The trust domain is looked up from the SPIFFE ID to determine key source:
+   - Trust domains **with** `jwks_url` configured: Keys fetched via HTTP from the JWKS endpoint
+   - Trust domains **without** `jwks_url`: Keys fetched from the local Workload API (requires `workload_socket`)
+4. JWT signature is verified against the retrieved public key
+5. The `X-Scope-OrgID` header is set based on the trust domain configuration
+
+This hybrid approach allows validating tokens from both local workloads (same SPIRE deployment) and remote workloads (different clusters with OIDC discovery endpoints).
 
 ### Kubernetes Deployment with SPIRE
 

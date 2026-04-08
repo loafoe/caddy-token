@@ -104,23 +104,33 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 	}
 	if m.Spiffe != nil && len(m.Spiffe.TrustDomains) > 0 {
 		socketPath := m.Spiffe.GetWorkloadSocket()
-		if socketPath != "" {
-			// Use Workload API for JWT bundle fetching
+		// Count trust domains with/without JWKS URLs
+		jwksCount := 0
+		workloadCount := 0
+		for _, td := range m.Spiffe.TrustDomains {
+			if td.JWKSURL != "" {
+				jwksCount++
+			} else {
+				workloadCount++
+			}
+		}
+
+		if socketPath != "" || jwksCount > 0 {
+			// Use hybrid source: JWKS for domains with URLs, Workload API for others
 			var err error
 			m.spiffeValidator, err = NewSpiffeValidatorWithWorkloadAPI(ctx, m.Spiffe, m.logger)
 			if err != nil {
-				return fmt.Errorf("creating SPIFFE validator with Workload API: %w", err)
+				return fmt.Errorf("creating SPIFFE validator: %w", err)
 			}
-			m.logger.Info("SPIFFE validator configured with Workload API",
+			m.logger.Info("SPIFFE validator configured",
 				zap.String("socket", socketPath),
 				zap.Int("trustDomains", len(m.Spiffe.TrustDomains)),
+				zap.Int("jwksDomains", jwksCount),
+				zap.Int("workloadDomains", workloadCount),
 				zap.Int("allowedIDs", len(m.Spiffe.AllowedIDs)))
 		} else {
-			// Use JWKS URLs for JWT verification
-			m.spiffeValidator = NewSpiffeValidator(m.Spiffe, m.logger)
-			m.logger.Info("SPIFFE validator configured with JWKS URLs",
-				zap.Int("trustDomains", len(m.Spiffe.TrustDomains)),
-				zap.Int("allowedIDs", len(m.Spiffe.AllowedIDs)))
+			// No socket and no JWKS URLs - this is a configuration error
+			return fmt.Errorf("SPIFFE configured but no workload socket or JWKS URLs provided")
 		}
 	}
 	if m.verifier == nil && len(m.tokens) == 0 && m.SigningKey == "" && !m.ClientCA && m.spiffeValidator == nil {

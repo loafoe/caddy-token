@@ -622,3 +622,75 @@ func TestSpiffeValidator_MultiTrustDomain(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// TestHybridKeySource tests the hybrid key source that combines JWKS and Workload API
+func TestHybridKeySource(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
+	// Generate test key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	// Create JWKS server
+	jwks := jose.JSONWebKeySet{
+		Keys: []jose.JSONWebKey{
+			{
+				Key:       &privateKey.PublicKey,
+				KeyID:     "jwks-key-1",
+				Algorithm: "RS256",
+				Use:       "sig",
+			},
+		},
+	}
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(jwks)
+	}))
+	defer jwksServer.Close()
+
+	// Create config with one JWKS domain and one without (would use Workload API)
+	domainMap := map[string]*SpiffeTrustDomain{
+		"jwks.example.org": {
+			Domain:  "jwks.example.org",
+			JWKSURL: jwksServer.URL,
+		},
+		"workload.example.org": {
+			Domain: "workload.example.org",
+			// No JWKS URL - would use Workload API
+		},
+	}
+
+	config := &SpiffeConfig{
+		TrustDomains: []SpiffeTrustDomain{
+			{Domain: "jwks.example.org", JWKSURL: jwksServer.URL},
+			{Domain: "workload.example.org"},
+		},
+		// No workload socket configured
+	}
+
+	// Create hybrid source without workload socket
+	source, err := newHybridKeySource(context.Background(), config, domainMap, logger)
+	require.NoError(t, err)
+	defer source.close()
+
+	// Test JWKS domain works
+	t.Run("JWKS domain returns key", func(t *testing.T) {
+		key, err := source.getKey(context.Background(), "jwks.example.org", "jwks-key-1", false)
+		require.NoError(t, err)
+		assert.NotNil(t, key)
+	})
+
+	// Test non-JWKS domain without workload socket fails gracefully
+	t.Run("non-JWKS domain without workload socket fails", func(t *testing.T) {
+		_, err := source.getKey(context.Background(), "workload.example.org", "any-key", false)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "workload API not available")
+	})
+
+	// Test unknown domain fails
+	t.Run("unknown domain fails", func(t *testing.T) {
+		_, err := source.getKey(context.Background(), "unknown.example.org", "any-key", false)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown trust domain")
+	})
+}
