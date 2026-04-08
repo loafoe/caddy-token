@@ -311,7 +311,7 @@ func (c *jwksCache) fetchJWKS(ctx context.Context, jwksURL string) error {
 	if err != nil {
 		return fmt.Errorf("fetching JWKS: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("JWKS endpoint returned status %d", resp.StatusCode)
@@ -363,7 +363,7 @@ func newWorkloadBundleSource(ctx context.Context, socketPath string, logger *zap
 	// Fetch initial bundles
 	bundles, err := client.FetchJWTBundles(ctx)
 	if err != nil {
-		client.Close()
+		_ = client.Close()
 		cancel()
 		return nil, fmt.Errorf("fetching initial JWT bundles: %w", err)
 	}

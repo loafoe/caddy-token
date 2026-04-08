@@ -333,7 +333,7 @@ func TestSpiffeValidator_ValidateJWT(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(jwks)
+		_ = json.NewEncoder(w).Encode(jwks)
 	}))
 	defer server.Close()
 
@@ -536,12 +536,12 @@ func TestSpiffeValidator_MultiTrustDomain(t *testing.T) {
 	}
 
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(jwks1)
+		_ = json.NewEncoder(w).Encode(jwks1)
 	}))
 	defer server1.Close()
 
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(jwks2)
+		_ = json.NewEncoder(w).Encode(jwks2)
 	}))
 	defer server2.Close()
 
