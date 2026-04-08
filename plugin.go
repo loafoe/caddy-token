@@ -47,6 +47,8 @@ type Middleware struct {
 	ClientCA          bool
 	Debug             bool
 	DefaultOrg        string
+	Spiffe            *SpiffeConfig
+	spiffeValidator   *SpiffeValidator
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -100,8 +102,29 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		}
 		m.tokens = tokens
 	}
-	if m.verifier == nil && len(m.tokens) == 0 && m.SigningKey == "" && !m.ClientCA {
-		return fmt.Errorf("no tokens, issuer, or client CA provided")
+	if m.Spiffe != nil && len(m.Spiffe.TrustDomains) > 0 {
+		socketPath := m.Spiffe.GetWorkloadSocket()
+		if socketPath != "" {
+			// Use Workload API for JWT bundle fetching
+			var err error
+			m.spiffeValidator, err = NewSpiffeValidatorWithWorkloadAPI(ctx, m.Spiffe, m.logger)
+			if err != nil {
+				return fmt.Errorf("creating SPIFFE validator with Workload API: %w", err)
+			}
+			m.logger.Info("SPIFFE validator configured with Workload API",
+				zap.String("socket", socketPath),
+				zap.Int("trustDomains", len(m.Spiffe.TrustDomains)),
+				zap.Int("allowedIDs", len(m.Spiffe.AllowedIDs)))
+		} else {
+			// Use JWKS URLs for JWT verification
+			m.spiffeValidator = NewSpiffeValidator(m.Spiffe, m.logger)
+			m.logger.Info("SPIFFE validator configured with JWKS URLs",
+				zap.Int("trustDomains", len(m.Spiffe.TrustDomains)),
+				zap.Int("allowedIDs", len(m.Spiffe.AllowedIDs)))
+		}
+	}
+	if m.verifier == nil && len(m.tokens) == 0 && m.SigningKey == "" && !m.ClientCA && m.spiffeValidator == nil {
+		return fmt.Errorf("no tokens, issuer, client CA, or SPIFFE config provided")
 	}
 	m.logger.Info("provisioned caddy-token middleware",
 		zap.String("issuer", m.Issuer),
@@ -109,7 +132,8 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		zap.Int64("apiKeyCount", int64(len(m.tokens))),
 		zap.String("TenantOrgClaim", m.TenantOrgClaim),
 		zap.Bool("HasSigningKey", m.SigningKey != ""),
-		zap.Bool("AllowUpstreamAuth", m.AllowUpstreamAuth))
+		zap.Bool("AllowUpstreamAuth", m.AllowUpstreamAuth),
+		zap.Bool("HasSpiffe", m.spiffeValidator != nil))
 	// start watching tokenFile
 	if m.TokenFile != "" {
 		m.logger.Info("starting watcher for token file", zap.String("tokenFile", m.TokenFile))
@@ -192,6 +216,41 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 			m.logger.Info("client certificate authenticated", zap.String("defaultOrg", m.DefaultOrg))
 		}
 		return nil
+	}
+
+	// Check for SPIFFE JWT SVID in Authorization header
+	if m.spiffeValidator != nil {
+		authHeader := r.Header.Get(authHeader)
+		if authHeader != "" {
+			parts := strings.Split(authHeader, " ")
+			if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+				result, err := m.spiffeValidator.ValidateJWT(r.Context(), parts[1])
+				if err == nil {
+					// Valid SPIFFE JWT
+					if m.InjectOrgHeader && result.Org != "" {
+						r.Header.Set(scopeIDHeader, result.Org)
+					}
+					if m.Debug {
+						m.logger.Info("SPIFFE JWT authenticated",
+							zap.String("spiffeID", result.SpiffeID.String()),
+							zap.String("org", result.Org))
+					}
+					return nil
+				}
+				// If SPIFFE validation failed but we have other auth methods, continue
+				// Otherwise, if SPIFFE is the only method, return the error
+				if m.verifier == nil && len(m.tokens) == 0 && m.SigningKey == "" {
+					if m.Debug {
+						m.logger.Error("SPIFFE JWT validation failed", zap.Error(err))
+					}
+					return caddyhttp.Error(http.StatusUnauthorized, err)
+				}
+				// Log but continue to try other auth methods
+				if m.Debug {
+					m.logger.Debug("SPIFFE JWT validation failed, trying other auth methods", zap.Error(err))
+				}
+			}
+		}
 	}
 
 	// Check if API key is there in header

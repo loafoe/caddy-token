@@ -283,6 +283,247 @@ func TestCaddyfileClientCAMinimal(t *testing.T) {
 	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
 }
 
+func TestSpiffeDirectiveParsing(t *testing.T) {
+	tests := []struct {
+		name                  string
+		config                string
+		expectError           bool
+		expectedTrustDomains  int
+		expectedAllowedIDs    int
+		expectedDefaultOrg    string
+		expectedDebug         bool
+		checkTrustDomain      func(t *testing.T, m *token.Middleware)
+	}{
+		{
+			name: "spiffe with single trust domain",
+			config: `token {
+				spiffe {
+					trust_domain example.org {
+						jwks_url https://spire.example.org/keys
+						audience myapi
+						org production
+					}
+				}
+			}`,
+			expectedTrustDomains: 1,
+			expectedAllowedIDs:   0,
+			expectedDefaultOrg:   "anonymous",
+			checkTrustDomain: func(t *testing.T, m *token.Middleware) {
+				td := m.Spiffe.TrustDomains[0]
+				assert.Equal(t, "example.org", td.Domain)
+				assert.Equal(t, "https://spire.example.org/keys", td.JWKSURL)
+				assert.Equal(t, "myapi", td.Audience)
+				assert.Equal(t, "production", td.Org)
+			},
+		},
+		{
+			name: "spiffe with multiple trust domains",
+			config: `token {
+				spiffe {
+					trust_domain prod.example.org {
+						jwks_url https://spire-prod.example.org/keys
+						audience prod-api
+						org production
+					}
+					trust_domain staging.example.org {
+						jwks_url https://spire-staging.example.org/keys
+						audience staging-api
+						org staging
+					}
+					default_org fallback
+				}
+			}`,
+			expectedTrustDomains: 2,
+			expectedDefaultOrg:   "fallback",
+			checkTrustDomain: func(t *testing.T, m *token.Middleware) {
+				assert.Equal(t, "prod.example.org", m.Spiffe.TrustDomains[0].Domain)
+				assert.Equal(t, "production", m.Spiffe.TrustDomains[0].Org)
+				assert.Equal(t, "staging.example.org", m.Spiffe.TrustDomains[1].Domain)
+				assert.Equal(t, "staging", m.Spiffe.TrustDomains[1].Org)
+			},
+		},
+		{
+			name: "spiffe with org_from_path",
+			config: `token {
+				spiffe {
+					trust_domain example.org {
+						jwks_url https://spire.example.org/keys
+						audience myapi
+						org_from_path true
+						org_path_index 1
+					}
+				}
+			}`,
+			expectedTrustDomains: 1,
+			checkTrustDomain: func(t *testing.T, m *token.Middleware) {
+				td := m.Spiffe.TrustDomains[0]
+				assert.True(t, td.OrgFromPath)
+				assert.Equal(t, 1, td.OrgPathIndex)
+			},
+		},
+		{
+			name: "spiffe with org_claim",
+			config: `token {
+				spiffe {
+					trust_domain example.org {
+						jwks_url https://spire.example.org/keys
+						audience myapi
+						org_claim tenant_id
+					}
+				}
+			}`,
+			expectedTrustDomains: 1,
+			checkTrustDomain: func(t *testing.T, m *token.Middleware) {
+				td := m.Spiffe.TrustDomains[0]
+				assert.Equal(t, "tenant_id", td.OrgClaim)
+			},
+		},
+		{
+			name: "spiffe with allowed_ids",
+			config: `token {
+				spiffe {
+					trust_domain example.org {
+						jwks_url https://spire.example.org/keys
+						audience myapi
+					}
+					allowed_ids spiffe://example.org/tenant/*
+					allowed_ids spiffe://example.org/service/**
+				}
+			}`,
+			expectedTrustDomains: 1,
+			expectedAllowedIDs:   2,
+			checkTrustDomain: func(t *testing.T, m *token.Middleware) {
+				assert.Contains(t, m.Spiffe.AllowedIDs, "spiffe://example.org/tenant/*")
+				assert.Contains(t, m.Spiffe.AllowedIDs, "spiffe://example.org/service/**")
+			},
+		},
+		{
+			name: "spiffe with debug",
+			config: `token {
+				spiffe {
+					trust_domain example.org {
+						jwks_url https://spire.example.org/keys
+					}
+					debug true
+				}
+			}`,
+			expectedTrustDomains: 1,
+			expectedDebug:        true,
+		},
+		{
+			name: "spiffe with workload_socket",
+			config: `token {
+				spiffe {
+					workload_socket unix:///run/spire/sockets/agent.sock
+					trust_domain example.org {
+						audience myapi
+						org production
+					}
+				}
+			}`,
+			expectedTrustDomains: 1,
+			checkTrustDomain: func(t *testing.T, m *token.Middleware) {
+				assert.Equal(t, "unix:///run/spire/sockets/agent.sock", m.Spiffe.WorkloadSocket)
+				assert.Equal(t, "", m.Spiffe.TrustDomains[0].JWKSURL) // No JWKS URL needed
+				assert.Equal(t, "production", m.Spiffe.TrustDomains[0].Org)
+			},
+		},
+		{
+			name: "spiffe with workload_socket and multiple trust domains",
+			config: `token {
+				spiffe {
+					workload_socket unix:///run/spire/sockets/agent.sock
+					trust_domain prod.example.org {
+						audience prod-api
+						org production
+					}
+					trust_domain staging.example.org {
+						audience staging-api
+						org_from_path true
+						org_path_index 1
+					}
+					default_org fallback
+				}
+			}`,
+			expectedTrustDomains: 2,
+			expectedDefaultOrg:   "fallback",
+			checkTrustDomain: func(t *testing.T, m *token.Middleware) {
+				assert.Equal(t, "unix:///run/spire/sockets/agent.sock", m.Spiffe.WorkloadSocket)
+				assert.Equal(t, "production", m.Spiffe.TrustDomains[0].Org)
+				assert.True(t, m.Spiffe.TrustDomains[1].OrgFromPath)
+			},
+		},
+		{
+			name: "spiffe missing jwks_url",
+			config: `token {
+				spiffe {
+					trust_domain example.org {
+						audience myapi
+					}
+				}
+			}`,
+			expectError: true,
+		},
+		{
+			name: "spiffe invalid org_path_index",
+			config: `token {
+				spiffe {
+					trust_domain example.org {
+						jwks_url https://spire.example.org/keys
+						org_path_index notanumber
+					}
+				}
+			}`,
+			expectError: true,
+		},
+		{
+			name: "spiffe invalid debug value",
+			config: `token {
+				spiffe {
+					trust_domain example.org {
+						jwks_url https://spire.example.org/keys
+					}
+					debug invalid
+				}
+			}`,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser(tt.config)
+			m := &token.Middleware{}
+
+			err := m.UnmarshalCaddyfile(d)
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, m.Spiffe, "Spiffe config should not be nil")
+
+			if tt.expectedTrustDomains > 0 {
+				assert.Len(t, m.Spiffe.TrustDomains, tt.expectedTrustDomains)
+			}
+			if tt.expectedAllowedIDs > 0 {
+				assert.Len(t, m.Spiffe.AllowedIDs, tt.expectedAllowedIDs)
+			}
+			if tt.expectedDefaultOrg != "" {
+				assert.Equal(t, tt.expectedDefaultOrg, m.Spiffe.DefaultOrg)
+			}
+			if tt.expectedDebug {
+				assert.True(t, m.Spiffe.Debug)
+			}
+			if tt.checkTrustDomain != nil {
+				tt.checkTrustDomain(t, m)
+			}
+		})
+	}
+}
+
 func TestClientCADirectiveParsing(t *testing.T) {
 	tests := []struct {
 		name           string
