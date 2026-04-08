@@ -671,7 +671,7 @@ func TestHybridKeySource(t *testing.T) {
 	// Create hybrid source without workload socket
 	source, err := newHybridKeySource(context.Background(), config, domainMap, logger)
 	require.NoError(t, err)
-	defer source.close()
+	defer func() { _ = source.close() }()
 
 	// Test JWKS domain works
 	t.Run("JWKS domain returns key", func(t *testing.T) {
