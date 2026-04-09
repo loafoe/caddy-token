@@ -141,58 +141,7 @@ token {
 ```
 
 ### `spiffe`
-Configures SPIFFE JWT SVID authentication. Supports multiple trust domains with per-domain organization extraction.
-
-**Sub-directives:**
-- `workload_socket <socket_path>` - SPIFFE Workload API socket path for fetching JWT bundles (e.g., `unix:///run/spire/sockets/agent.sock`). When set, `jwks_url` is not required. Respects `SPIFFE_ENDPOINT_SOCKET` environment variable.
-- `trust_domain <domain> { ... }` - Configure a SPIFFE trust domain (can be specified multiple times)
-  - `jwks_url <url>` - JWKS endpoint URL for JWT verification (required unless `workload_socket` is set)
-  - `audience <audience>` - Required audience claim value
-  - `org <organization>` - Static organization name for this trust domain
-  - `org_from_path <true|false>` - Extract organization from SPIFFE ID path
-  - `org_path_index <index>` - Path segment index to use as organization (0-indexed)
-  - `org_claim <claim_name>` - Extract organization from a JWT claim
-- `allowed_ids <pattern>` - SPIFFE ID pattern to allow (supports `*` and `**` wildcards, can be specified multiple times)
-- `default_org <organization>` - Default organization when extraction fails (default: "anonymous")
-- `debug <true|false>` - Enable debug logging
-
-**Organization Extraction Priority:**
-1. Static `org` value (if configured)
-2. JWT claim via `org_claim` (if configured and claim exists)
-3. Path segment via `org_from_path` and `org_path_index` (if configured)
-4. `default_org` fallback
-
-**Example with JWKS URL:**
-```caddyfile
-token {
-    spiffe {
-        trust_domain example.org {
-            jwks_url https://spire.example.org/.well-known/jwks.json
-            audience myapi
-            org_from_path true
-            org_path_index 1
-        }
-        allowed_ids spiffe://example.org/tenant/*/service/*
-        default_org anonymous
-    }
-}
-```
-
-**Example with Workload API (Kubernetes/SPIRE):**
-```caddyfile
-token {
-    spiffe {
-        workload_socket unix:///run/spire/sockets/agent.sock
-        trust_domain example.org {
-            audience myapi
-            org_from_path true
-            org_path_index 1
-        }
-        allowed_ids spiffe://example.org/tenant/*/service/*
-        default_org anonymous
-    }
-}
-```
+Configures SPIFFE JWT SVID authentication. See [SPIFFE Integration](#spiffe-integration) for detailed documentation and examples.
 
 ### `injectOrgHeader`
 Controls whether to inject the `X-Scope-OrgID` header based on token claims.
@@ -310,150 +259,6 @@ token {
 }
 ```
 
-### SPIFFE JWT SVID Authentication
-```caddyfile
-{
-    order token first
-}
-
-:8080 {
-    token {
-        spiffe {
-            trust_domain example.org {
-                jwks_url https://spire.example.org/.well-known/jwks.json
-                audience myapi
-                org_from_path true
-                org_path_index 1
-            }
-            allowed_ids spiffe://example.org/tenant/*/service/*
-            default_org anonymous
-        }
-        injectOrgHeader true
-    }
-    
-    reverse_proxy backend:3000
-}
-```
-
-### SPIFFE with Multiple Trust Domains
-```caddyfile
-{
-    order token first
-}
-
-:8080 {
-    token {
-        spiffe {
-            trust_domain prod.example.org {
-                jwks_url https://spire-prod.example.org/keys
-                audience prod-api
-                org production
-            }
-            trust_domain staging.example.org {
-                jwks_url https://spire-staging.example.org/keys
-                audience staging-api
-                org staging
-            }
-            trust_domain partners.example.org {
-                jwks_url https://spire-partners.example.org/keys
-                audience partner-api
-                org_claim partner_id
-            }
-            default_org anonymous
-        }
-    }
-    
-    reverse_proxy backend:3000
-}
-```
-
-### SPIFFE with Kubernetes/SPIRE Workload API
-```caddyfile
-{
-    order token first
-}
-
-:8080 {
-    token {
-        spiffe {
-            # Connect to SPIRE Agent socket (mounted as volume in K8s)
-            workload_socket unix:///run/spire/sockets/agent.sock
-            trust_domain cluster.local {
-                audience myapi
-                org_from_path true
-                org_path_index 1  # e.g., spiffe://cluster.local/ns/{namespace}/sa/...
-            }
-            allowed_ids spiffe://cluster.local/ns/*/sa/*
-            default_org anonymous
-        }
-        injectOrgHeader true
-    }
-    
-    reverse_proxy backend:3000
-}
-```
-
-### Cross-Cluster SPIFFE Authentication (Hybrid Mode)
-
-When you need to authenticate workloads from multiple SPIFFE trust domains - some local (same cluster) and some remote (different clusters) - you can use the hybrid mode. This combines:
-
-- **Workload API** for local trust domains (fetches JWT bundles from SPIRE Agent)
-- **JWKS URLs** for remote trust domains (fetches keys via HTTP from remote OIDC discovery endpoints)
-
-The plugin automatically routes key lookups based on whether a trust domain has `jwks_url` configured:
-- Trust domains **with** `jwks_url`: Keys fetched via HTTP from the JWKS endpoint
-- Trust domains **without** `jwks_url`: Keys fetched from the local Workload API
-
-```caddyfile
-{
-    order token first
-}
-
-:8080 {
-    token {
-        spiffe {
-            # Local SPIRE Agent socket for local trust domain
-            workload_socket unix:///run/spire/sockets/agent.sock
-            
-            # Local trust domain - uses Workload API (no jwks_url)
-            trust_domain cluster.local {
-                audience myapi
-                org_from_path true
-                org_path_index 1
-            }
-            
-            # Remote trust domain - uses JWKS URL
-            trust_domain remote-cluster.example.org {
-                jwks_url https://oidc-discovery.remote-cluster.example.org/keys
-                audience myapi
-                org_from_path true
-                org_path_index 1
-            }
-            
-            # Another remote trust domain with static org
-            trust_domain partner.example.com {
-                jwks_url https://spire.partner.example.com/.well-known/jwks.json
-                audience partner-api
-                org partner-org
-            }
-            
-            allowed_ids spiffe://cluster.local/ns/*/sa/*
-            allowed_ids spiffe://remote-cluster.example.org/ns/*/sa/*
-            allowed_ids spiffe://partner.example.com/workload/*
-            default_org anonymous
-        }
-        injectOrgHeader true
-    }
-    
-    reverse_proxy backend:3000
-}
-```
-
-This hybrid approach enables:
-- **Zero-trust cross-cluster communication**: Workloads in remote clusters can authenticate using their SPIFFE identity
-- **Federation without shared infrastructure**: Each cluster maintains its own SPIRE deployment
-- **Flexible key distribution**: Remote clusters only need to expose their JWKS endpoint (commonly via OIDC discovery)
-
 ### Combined Authentication Methods
 ```caddyfile
 {
@@ -493,26 +298,177 @@ This hybrid approach enables:
 1. Workloads present JWT SVIDs in the `Authorization: Bearer <token>` header
 2. The plugin extracts the SPIFFE ID from the JWT's `sub` claim (e.g., `spiffe://cluster.local/ns/prod/sa/api`)
 3. The trust domain is looked up from the SPIFFE ID to determine key source:
-   - Trust domains **with** `jwks_url` configured: Keys fetched via HTTP from the JWKS endpoint
-   - Trust domains **without** `jwks_url`: Keys fetched from the local Workload API (requires `workload_socket`)
+   - Trust domains **with** `jwks_url`: Keys fetched via HTTP from the JWKS endpoint
+   - Trust domains **without** `jwks_url`: Keys fetched from the local Workload API
 4. JWT signature is verified against the retrieved public key
-5. The `X-Scope-OrgID` header is set based on the trust domain configuration
+5. The `X-Scope-OrgID` header is set based on trust domain configuration
 
-This hybrid approach allows validating tokens from both local workloads (same SPIRE deployment) and remote workloads (different clusters with OIDC discovery endpoints).
+### Configuration Reference
 
-### Kubernetes Deployment with SPIRE
+```caddyfile
+token {
+    spiffe {
+        workload_socket <socket_path>
+        trust_domain <domain> {
+            jwks_url <url>
+            audience <audience>
+            org <organization>
+            org_from_path <true|false>
+            org_path_index <index>
+            org_claim <claim_name>
+        }
+        allowed_ids <pattern>
+        default_org <organization>
+        debug <true|false>
+    }
+}
+```
 
-To use SPIFFE authentication in Kubernetes with SPIRE:
+| Directive | Description |
+|-----------|-------------|
+| `workload_socket` | SPIFFE Workload API socket path (e.g., `unix:///run/spire/sockets/agent.sock`). Also reads from `SPIFFE_ENDPOINT_SOCKET` env var. |
+| `trust_domain` | Configure a trust domain (repeatable). Contains sub-directives below. |
+| `jwks_url` | JWKS endpoint for JWT verification. If omitted, uses Workload API. |
+| `audience` | Required audience claim value. |
+| `org` | Static organization name for this trust domain. |
+| `org_from_path` | Extract organization from SPIFFE ID path segments. |
+| `org_path_index` | Path segment index to use as organization (0-indexed). |
+| `org_claim` | Extract organization from a JWT claim. |
+| `allowed_ids` | SPIFFE ID pattern to allow (repeatable). Supports `*` and `**` wildcards. |
+| `default_org` | Fallback organization when extraction fails (default: `anonymous`). |
+| `debug` | Enable debug logging. |
 
-#### 1. Prerequisites
+**Organization Extraction Priority:**
+1. Static `org` value (if configured)
+2. JWT claim via `org_claim` (if configured and claim exists)
+3. Path segment via `org_from_path` and `org_path_index` (if configured)
+4. `default_org` fallback
+
+### Examples
+
+#### Basic JWKS URL
+
+```caddyfile
+token {
+    spiffe {
+        trust_domain example.org {
+            jwks_url https://spire.example.org/.well-known/jwks.json
+            audience myapi
+            org_from_path true
+            org_path_index 1
+        }
+        allowed_ids spiffe://example.org/tenant/*/service/*
+        default_org anonymous
+    }
+}
+```
+
+#### Workload API (Kubernetes/SPIRE)
+
+```caddyfile
+token {
+    spiffe {
+        workload_socket unix:///run/spire/sockets/agent.sock
+        trust_domain cluster.local {
+            audience myapi
+            org_from_path true
+            org_path_index 1
+        }
+        allowed_ids spiffe://cluster.local/ns/*/sa/*
+        default_org anonymous
+    }
+}
+```
+
+#### Multiple Trust Domains
+
+```caddyfile
+token {
+    spiffe {
+        trust_domain prod.example.org {
+            jwks_url https://spire-prod.example.org/keys
+            audience prod-api
+            org production
+        }
+        trust_domain staging.example.org {
+            jwks_url https://spire-staging.example.org/keys
+            audience staging-api
+            org staging
+        }
+        trust_domain partners.example.org {
+            jwks_url https://spire-partners.example.org/keys
+            audience partner-api
+            org_claim partner_id
+        }
+        default_org anonymous
+    }
+}
+```
+
+#### Cross-Cluster (Hybrid Mode)
+
+Authenticate workloads from both local (Workload API) and remote (JWKS URL) trust domains:
+
+```caddyfile
+token {
+    spiffe {
+        workload_socket unix:///run/spire/sockets/agent.sock
+        
+        # Local - uses Workload API (no jwks_url)
+        trust_domain cluster.local {
+            audience myapi
+            org_from_path true
+            org_path_index 1
+        }
+        
+        # Remote - uses JWKS URL
+        trust_domain remote-cluster.example.org {
+            jwks_url https://oidc-discovery.remote-cluster.example.org/keys
+            audience myapi
+            org_from_path true
+            org_path_index 1
+        }
+        
+        allowed_ids spiffe://cluster.local/ns/*/sa/*
+        allowed_ids spiffe://remote-cluster.example.org/ns/*/sa/*
+        default_org anonymous
+    }
+}
+```
+
+### SPIFFE ID Patterns
+
+The `allowed_ids` directive supports glob patterns:
+
+| Pattern | Matches |
+|---------|---------|
+| `spiffe://example.org/service/api` | Exact match only |
+| `spiffe://example.org/service/*` | Any single segment: `/service/api`, `/service/web` |
+| `spiffe://example.org/ns/**` | Any path under `/ns/`: `/ns/prod/sa/api`, `/ns/dev/sa/web/v2` |
+| `spiffe://*/service/*` | Any trust domain with `/service/{name}` path |
+
+### Organization Extraction
+
+For a SPIFFE ID like `spiffe://cluster.local/ns/production/sa/api-service`:
+
+| Configuration | Extracted Org |
+|---------------|---------------|
+| `org production` | `production` (static) |
+| `org_from_path true`, `org_path_index 0` | `ns` |
+| `org_from_path true`, `org_path_index 1` | `production` |
+| `org_from_path true`, `org_path_index 2` | `sa` |
+| `org_from_path true`, `org_path_index 3` | `api-service` |
+| `org_claim tenant` | Value of `tenant` claim in JWT |
+
+### Kubernetes Deployment
+
+#### Prerequisites
 
 - SPIRE Server deployed in your cluster
 - SPIRE Agent running as a DaemonSet
-- Workloads registered with SPIRE (via ClusterSPIFFEID or manual registration)
+- Workloads registered with SPIRE
 
-#### 2. Mount the SPIRE Agent Socket
-
-Add the SPIRE Agent socket volume to your Caddy deployment:
+#### Mount the SPIRE Agent Socket
 
 ```yaml
 apiVersion: apps/v1
@@ -536,9 +492,7 @@ spec:
             type: Directory
 ```
 
-#### 3. Register the Caddy Workload
-
-Create a ClusterSPIFFEID for your Caddy deployment:
+#### Register the Caddy Workload
 
 ```yaml
 apiVersion: spire.spiffe.io/v1alpha1
@@ -554,55 +508,6 @@ spec:
     matchLabels:
       kubernetes.io/metadata.name: gateway
 ```
-
-#### 4. Configure Caddy
-
-```caddyfile
-{
-    order token first
-}
-
-:8080 {
-    token {
-        spiffe {
-            workload_socket unix:///run/spire/sockets/agent.sock
-            trust_domain cluster.local {
-                audience myapi
-                org_from_path true
-                org_path_index 1  # Extract namespace as org
-            }
-            allowed_ids spiffe://cluster.local/ns/*/sa/*
-            default_org anonymous
-        }
-    }
-    
-    reverse_proxy backend:3000
-}
-```
-
-### SPIFFE ID Patterns
-
-The `allowed_ids` directive supports glob patterns:
-
-| Pattern | Matches |
-|---------|---------|
-| `spiffe://example.org/service/api` | Exact match only |
-| `spiffe://example.org/service/*` | Any single segment: `/service/api`, `/service/web` |
-| `spiffe://example.org/ns/**` | Any path under `/ns/`: `/ns/prod/sa/api`, `/ns/dev/sa/web/v2` |
-| `spiffe://*/service/*` | Any trust domain with `/service/{name}` path |
-
-### Organization Extraction from SPIFFE ID
-
-For a SPIFFE ID like `spiffe://cluster.local/ns/production/sa/api-service`:
-
-| Configuration | Extracted Org |
-|---------------|---------------|
-| `org production` | `production` (static) |
-| `org_from_path true`, `org_path_index 0` | `ns` |
-| `org_from_path true`, `org_path_index 1` | `production` |
-| `org_from_path true`, `org_path_index 2` | `sa` |
-| `org_from_path true`, `org_path_index 3` | `api-service` |
-| `org_claim tenant` | Value of `tenant` claim in JWT |
 
 ### Environment Variables
 
