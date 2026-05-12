@@ -1,10 +1,10 @@
 module github.com/loafoe/caddy-token/cmd/caddy-token-gen
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/loafoe/caddy-token v0.72.0
-	github.com/spf13/cobra v1.10.1
+	github.com/spf13/cobra v1.10.2
 )
 
 require (
