@@ -1,6 +1,6 @@
 module github.com/loafoe/caddy-token/cmd/caddy-token-gen
 
-go 1.25.0
+go 1.25.1
 
 require (
 	github.com/loafoe/caddy-token v0.72.0
