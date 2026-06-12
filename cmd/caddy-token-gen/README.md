@@ -11,7 +11,7 @@ go install github.com/loafoe/caddy-token/cmd/caddy-token-gen@latest
 # usage
 
 ```shell
-caddy-token-gen g -e client-test -r us-east -p fake -o fake
+caddy-token-gen g -e client-test -r us-east -p fake -o fake -k "your-secret-signing-key"
 ```
 
 Append the output to your static token file.

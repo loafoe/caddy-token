@@ -1,6 +1,6 @@
 # caddy-token
 
-Caddy token based authentication. Supports static tokens from files, signed API keys, JWT tokens, client certificate authentication, and SPIFFE JWT SVIDs.
+Caddy token based authentication. Supports static tokens from files, signed API keys, JWT tokens, client certificate authentication, and SPIFFE JWT SVIDs. Handles millions of daily request in production environments across the globe.
 
 ## Quick Start
 
@@ -41,7 +41,7 @@ go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 After xcaddy installation you can build caddy with this plugin by executing:
 
 ```shell
-xcaddy build v2.8.4 --with github.com/loafoe/caddy-token
+xcaddy build v2.11.2 --with github.com/loafoe/caddy-token
 ```
 # Configuration
 
@@ -68,6 +68,7 @@ token {
     injectOrgHeader <true|false>
     allowUpstreamAuth <true|false>
     tenantOrgClaim <claim_name>
+    debug <true|false>
 }
 ```
 
@@ -180,6 +181,19 @@ Specifies which JWT claim to use for tenant organization mapping.
 token {
     tenantOrgClaim ort
 }
+
+### `debug`
+Enables top-level debug logging.
+
+**Syntax:** `debug <true|false>`
+**Default:** `false`
+
+**Example:**
+```caddyfile
+token {
+    debug true
+}
+```
 ```
 
 ## Complete Configuration Examples
@@ -552,7 +566,7 @@ go install github.com/loafoe/caddy-token/cmd/caddy-token-gen@latest
 ## usage
 
 ```shell
-caddy-token-gen g -e client-test -r us-east -p fake -o fake
+caddy-token-gen g -e client-test -r us-east -p fake -o fake -k "your-secret-signing-key"
 ```
 
 # license

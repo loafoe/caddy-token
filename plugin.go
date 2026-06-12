@@ -205,7 +205,6 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 			m.logger.Info("upstream X-Scope-OrgID detected", zap.String("value", upstreamAuth))
 		}
 		if m.AllowUpstreamAuth {
-			// TODO: double check if we have a user token
 			return nil
 		}
 		if m.Debug {
