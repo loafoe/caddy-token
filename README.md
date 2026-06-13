@@ -569,6 +569,43 @@ go install github.com/loafoe/caddy-token/cmd/caddy-token-gen@latest
 caddy-token-gen g -e client-test -r us-east -p fake -o fake -k "your-secret-signing-key"
 ```
 
+# Verification
+
+The Docker images published to GitHub Container Registry (`ghcr.io/loafoe/caddy-token`) are signed using [Cosign](https://github.com/sigstore/cosign) with keyless signing (OIDC via GitHub Actions). We also generate and attest a Software Bill of Materials (SBOM) in SPDX format for each image.
+
+You can verify the image signatures and the SBOM attestations using the instructions below.
+
+## Verify Image Signature
+
+To verify the signature of a container image:
+
+```shell
+cosign verify ghcr.io/loafoe/caddy-token:<tag> \
+  --certificate-identity-regexp '^https://github.com/loafoe/caddy-token/\.github/workflows/build_docker.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+## Verify and Extract SBOM Attestation
+
+To verify the SBOM attestation on the container image:
+
+```shell
+cosign verify-attestation --type spdxjson \
+  --certificate-identity-regexp '^https://github.com/loafoe/caddy-token/\.github/workflows/build_docker.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/loafoe/caddy-token:<tag>
+```
+
+To extract and save the SBOM in SPDX JSON format:
+
+```shell
+cosign verify-attestation --type spdxjson \
+  --certificate-identity-regexp '^https://github.com/loafoe/caddy-token/\.github/workflows/build_docker.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/loafoe/caddy-token:<tag> \
+  | jq -r '.payload | @base64d | fromjson | .predicate' > sbom.spdx.json
+```
+
 # license
 
 License is Apache 2.0
