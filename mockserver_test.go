@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
@@ -69,6 +69,22 @@ func getToken() (string, error) {
 	return tokenResponse.AccessToken, nil
 }
 
+// getForgedToken returns a JWT with the admin/test groups but signed by a key
+// that is NOT in the mock issuer's JWKS, so its signature cannot be verified.
+func getForgedToken() (string, error) {
+	otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", err
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub":    "attacker",
+		"exp":    time.Now().Add(time.Hour).Unix(),
+		"groups": []string{"admin", "test"},
+	})
+	token.Header["kid"] = "1"
+	return token.SignedString(otherKey)
+}
+
 func runMockServer(started chan bool) {
 
 	http.HandleFunc("/.well-known/openid-configuration", discoveryHandler)
@@ -97,12 +113,14 @@ func discoveryHandler(w http.ResponseWriter, r *http.Request) {
 func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	// Create the token
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss":    "http://127.0.0.1:12000",
 		"sub":    "1234567890",
 		"name":   "John Doe",
 		"email":  "john.doe@example.com",
 		"exp":    time.Now().Add(time.Hour * 1).Unix(),
 		"groups": []string{"admin", "test"},
 	})
+	token.Header["kid"] = "1"
 
 	// Sign the token with the private key
 	tokenString, err := token.SignedString(privateKey)

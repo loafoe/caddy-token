@@ -131,6 +131,8 @@ Enables client certificate authentication.
 - `debug <true|false>` - Enable debug logging for client CA operations
 - `default_org <organization_name>` - Organization name to set in X-Scope-OrgID header (default: "anonymous")
 
+> **⚠️ Security requirement:** `client_ca` authenticates a request only when the client certificate chains to a trusted CA, i.e. the TLS listener must be configured with `client_auth { mode require_and_verify }` and a `trusted_ca_cert`/`trusted_ca_cert_file`. Without `require_and_verify`, the plugin rejects the request rather than trusting an unverified, possibly self-signed certificate.
+
 **Example:**
 ```caddyfile
 token {
@@ -605,6 +607,15 @@ cosign verify-attestation --type spdxjson \
   ghcr.io/loafoe/caddy-token:<tag> \
   | jq -r '.payload | @base64d | fromjson | .predicate' > sbom.spdx.json
 ```
+
+# Security Considerations
+
+- **`X-Scope-OrgID` / `X-Grafana-Org-Id` are stripped from inbound requests** before authentication unless `allowUpstreamAuth true` is set. This prevents a client from spoofing a tenant. Only enable `allowUpstreamAuth` when this plugin sits behind another trusted authenticator that sets these headers.
+- **Client certificate auth requires a verified chain.** See the [`client_ca`](#client_ca) note — configure the TLS listener with `require_and_verify`.
+- **`jwt { verify false }` does not disable signature verification.** A token whose signature cannot be verified is always rejected (fail closed). The option only relaxes issuer/expiry strictness within the verifier; it never authorizes on claims from an unverified JWT.
+- **API key expiry is enforced.** Keys minted with a TTL (`caddy-token-gen g --ttl ...`) are rejected after expiry. Keys minted without a TTL never expire — prefer setting one.
+- **`default_org` is a fail-open fallback.** When org extraction fails (JWT/SPIFFE), requests are admitted under `default_org` (default `anonymous`). Ensure the upstream treats this tenant as unprivileged, or scope `allowed_ids`/claims so extraction cannot silently fall back.
+- **Container image** runs as a non-root user and pins its base images by digest.
 
 # license
 

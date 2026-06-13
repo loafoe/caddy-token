@@ -194,6 +194,15 @@ func TestCaddyfileJWTClaims(t *testing.T) {
 	}
 
 	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
+
+	// Even with `verify false`, a token whose signature cannot be verified must
+	// be rejected (fail closed). `verify false` must not let a forged token
+	// through on the strength of its (unverified) group claims.
+	forged, err := getForgedToken()
+	if err != nil {
+		t.Fatalf("Failed to forge token: %v", err)
+	}
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + forged, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 401, "")
 }
 
 func TestCaddyfileClientCA(t *testing.T) {

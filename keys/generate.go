@@ -31,6 +31,16 @@ func VerifySignature(payload, providedSignature, password string) bool {
 	return hmac.Equal([]byte(expectedSignature), []byte(providedSignature))
 }
 
+// checkExpiry rejects a key whose Expires timestamp (Unix seconds) is in the
+// past. An Expires value of 0 means the key never expires, preserving backward
+// compatibility with keys minted without an expiry.
+func checkExpiry(key *Key) error {
+	if key.Expires != 0 && time.Now().Unix() > key.Expires {
+		return fmt.Errorf("token expired")
+	}
+	return nil
+}
+
 func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 	var key Key
 
@@ -70,6 +80,9 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 		if !VerifySignature(payload, signature, password) {
 			return false, &key, fmt.Errorf("signature mismatch")
 		}
+		if err := checkExpiry(&key); err != nil {
+			return false, &key, err
+		}
 		return true, &key, nil
 	case "3":
 		if len(split) == 0 || split[0] == "" {
@@ -93,6 +106,9 @@ func VerifyAPIKey(apiKey, password string) (bool, *Key, error) {
 		err = json.Unmarshal([]byte(decrypted), &key)
 		if err != nil {
 			return false, nil, fmt.Errorf("unmarshal token: %w '%s'", err, decrypted)
+		}
+		if err := checkExpiry(&key); err != nil {
+			return false, &key, err
 		}
 		return true, &key, nil
 	default:
@@ -233,6 +249,13 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 		return "", "", fmt.Errorf("key must be at least 16 characters long for token version 3")
 	}
 
+	// A zero expiresAt means "never expires"; encode it as 0 rather than the
+	// negative Unix timestamp of the zero time.Time value.
+	var expires int64
+	if !expiresAt.IsZero() {
+		expires = expiresAt.Unix()
+	}
+
 	// Generate a random string and use the deterministic function
 	randomString := GenerateRandomString(randomCount)
 	return GenerateDeterministicAPIKey(version, "",
@@ -243,7 +266,7 @@ func GenerateAPIKey(version, key, org, env, region, project string, scopes []str
 		WithRegion(region),
 		WithProject(project),
 		WithScopes(scopes),
-		WithExpires(expiresAt.Unix()))
+		WithExpires(expires))
 }
 
 // GenerateRandomString generates a random alphanumeric string of length n.

@@ -27,6 +27,7 @@ func TestCheckTokenAndInjectHeaders_ClientCertificate(t *testing.T) {
 		defaultOrg     string
 		hasTLS         bool
 		hasCerts       bool
+		verifiedChain  bool
 		expectedHeader string
 		expectError    bool
 	}{
@@ -37,6 +38,7 @@ func TestCheckTokenAndInjectHeaders_ClientCertificate(t *testing.T) {
 			defaultOrg:     "anonymous",
 			hasTLS:         true,
 			hasCerts:       true,
+			verifiedChain:  true,
 			expectedHeader: "anonymous",
 			expectError:    false,
 		},
@@ -47,8 +49,20 @@ func TestCheckTokenAndInjectHeaders_ClientCertificate(t *testing.T) {
 			defaultOrg:     "my-organization",
 			hasTLS:         true,
 			hasCerts:       true,
+			verifiedChain:  true,
 			expectedHeader: "my-organization",
 			expectError:    false,
+		},
+		{
+			name:           "client cert presented but chain not verified",
+			clientCA:       true,
+			debug:          false,
+			defaultOrg:     "anonymous",
+			hasTLS:         true,
+			hasCerts:       true,
+			verifiedChain:  false,
+			expectedHeader: "",
+			expectError:    true, // Unverified cert must not authenticate
 		},
 		{
 			name:           "client cert disabled",
@@ -57,6 +71,7 @@ func TestCheckTokenAndInjectHeaders_ClientCertificate(t *testing.T) {
 			defaultOrg:     "anonymous",
 			hasTLS:         true,
 			hasCerts:       true,
+			verifiedChain:  true,
 			expectedHeader: "",
 			expectError:    true, // Should fail with no valid token
 		},
@@ -106,6 +121,11 @@ func TestCheckTokenAndInjectHeaders_ClientCertificate(t *testing.T) {
 						},
 					}
 					req.TLS.PeerCertificates = []*x509.Certificate{cert}
+					if tt.verifiedChain {
+						// A verified chain is what TLS termination populates when
+						// the client cert chains to a trusted CA.
+						req.TLS.VerifiedChains = [][]*x509.Certificate{{cert}}
+					}
 				}
 			}
 
@@ -432,6 +452,7 @@ func TestCheckTokenAndInjectHeaders_AuthenticationPriority(t *testing.T) {
 	}
 	req.TLS = &tls.ConnectionState{
 		PeerCertificates: []*x509.Certificate{cert},
+		VerifiedChains:   [][]*x509.Certificate{{cert}},
 	}
 
 	// Call the function

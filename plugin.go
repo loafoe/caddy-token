@@ -89,6 +89,10 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		m.verifier = provider.Verifier(&oidc.Config{
 			SkipClientIDCheck: true,
 		})
+		if !m.Verify {
+			m.logger.Warn("jwt 'verify false' no longer disables signature verification; tokens with invalid signatures are always rejected",
+				zap.String("issuer", m.Issuer))
+		}
 		m.logger.Info("verifier setup", zap.String("issuer", m.Issuer))
 	}
 	if m.TokenFile != "" {
@@ -212,8 +216,20 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 		}
 	}
 
-	// Check for client certificate authentication first
-	if m.ClientCA && r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+	// Strip any client-supplied tenant headers before authenticating. Unless
+	// AllowUpstreamAuth is enabled (handled above), these headers must never be
+	// trusted: leaving them in place would let a caller spoof a tenant on any
+	// success path that does not explicitly overwrite X-Scope-OrgID (e.g.
+	// InjectOrgHeader=false, or a JWT/SPIFFE org that resolves to empty).
+	r.Header.Del(scopeIDHeader)
+	r.Header.Del(grafanaOrgHeader)
+
+	// Check for client certificate authentication first. We require a verified
+	// chain (r.TLS.VerifiedChains), not merely a presented certificate: a bare
+	// PeerCertificates entry can be any self-signed cert. Verified chains are
+	// only populated when the TLS listener is configured with
+	// require_and_verify against a trusted client CA.
+	if m.ClientCA && r.TLS != nil && len(r.TLS.PeerCertificates) > 0 && len(r.TLS.VerifiedChains) > 0 {
 		if m.Debug {
 			m.logger.Info("client certificate detected",
 				zap.Int("certCount", len(r.TLS.PeerCertificates)),
@@ -315,12 +331,16 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 	if m.verifier != nil && idToken != "" { // OIDC flow
 		_, err := m.verifier.Verify(r.Context(), idToken)
 		if err != nil {
-			if m.Verify { // Error out if verification is enabled
-				m.logger.Error("invalid token detected",
-					zap.Error(err),
-					zap.String("remoteAddr", r.RemoteAddr))
-				return caddyhttp.Error(http.StatusUnauthorized, err)
-			}
+			// Fail closed: a token whose signature cannot be verified is
+			// rejected regardless of the `verify` setting. Authorizing on
+			// claims from an unverified JWT would let anyone forge group and
+			// tenant membership. The `verify false` option only suppresses
+			// issuer/expiry strictness within the verifier, not the signature
+			// check itself.
+			m.logger.Error("invalid token detected",
+				zap.Error(err),
+				zap.String("remoteAddr", r.RemoteAddr))
+			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
 		type DexClaims struct {
 			ObservabilityReadTenants  []string `json:"ort,omitempty"`

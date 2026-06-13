@@ -28,11 +28,17 @@ func tokenGenerate(cmd *cobra.Command, args []string) {
 	region, _ := cmd.Flags().GetString("region")
 	project, _ := cmd.Flags().GetString("project")
 	scopes, _ := cmd.Flags().GetStringSlice("scopes")
+	ttl, _ := cmd.Flags().GetDuration("ttl")
 	if org == "" || region == "" || version == "" {
 		fmt.Println("Please provide all required parameters (at least: organization, region, version)")
 		os.Exit(1)
 	}
-	apiKey, _, err := keys.GenerateAPIKey(version, key, org, env, region, project, scopes, time.Time{})
+	// expiresAt zero value means "never expires"; a positive ttl sets a real expiry.
+	var expiresAt time.Time
+	if ttl > 0 {
+		expiresAt = time.Now().Add(ttl)
+	}
+	apiKey, _, err := keys.GenerateAPIKey(version, key, org, env, region, project, scopes, expiresAt)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(2)
@@ -49,4 +55,5 @@ func init() {
 	generateCmd.Flags().StringP("region", "r", "", "Region ID")
 	generateCmd.Flags().StringP("project", "p", "", "Project ID")
 	generateCmd.Flags().StringSliceP("scopes", "s", []string{}, "Scopes")
+	generateCmd.Flags().Duration("ttl", 0, "Token lifetime (e.g. 720h). Zero means the token never expires.")
 }

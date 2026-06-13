@@ -3,6 +3,9 @@ package token
 import (
 	"context"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -599,6 +602,22 @@ type SpiffeValidationResult struct {
 	Org         string
 }
 
+// validMethodsForKey returns the JWT signing algorithm names that are valid for
+// the given public key type. This is used to pin the accepted algorithm during
+// verification, preventing algorithm-confusion attacks.
+func validMethodsForKey(key crypto.PublicKey) []string {
+	switch key.(type) {
+	case *rsa.PublicKey:
+		return []string{"RS256", "RS384", "RS512", "PS256", "PS384", "PS512"}
+	case *ecdsa.PublicKey:
+		return []string{"ES256", "ES384", "ES512"}
+	case ed25519.PublicKey:
+		return []string{"EdDSA"}
+	default:
+		return nil
+	}
+}
+
 // ValidateJWT validates a SPIFFE JWT SVID and returns the validation result
 func (v *SpiffeValidator) ValidateJWT(ctx context.Context, tokenString string) (*SpiffeValidationResult, error) {
 	// Parse without verification first to get the header and claims
@@ -642,10 +661,16 @@ func (v *SpiffeValidator) ValidateJWT(ctx context.Context, tokenString string) (
 		return nil, fmt.Errorf("getting signing key: %w", err)
 	}
 
-	// Verify signature
+	// Verify signature. Pin the acceptable signing algorithms to those valid
+	// for the resolved key type so a forged token cannot coerce the verifier
+	// into a different algorithm family (e.g. RS256->HS256 key confusion).
+	validMethods := validMethodsForKey(key)
+	if len(validMethods) == 0 {
+		return nil, fmt.Errorf("unsupported signing key type %T", key)
+	}
 	verifiedToken, err := jwt.Parse(tokenString, func(t *jwt.Token) (any, error) {
 		return key, nil
-	})
+	}, jwt.WithValidMethods(validMethods))
 	if err != nil {
 		return nil, fmt.Errorf("verifying JWT signature: %w", err)
 	}
