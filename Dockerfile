@@ -15,10 +15,11 @@ FROM alpine:3.24@sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb2
 # Run as an unprivileged user rather than root.
 RUN addgroup -S caddy && adduser -S -G caddy caddy
 COPY --from=builder /build/caddy /usr/bin/caddy
-# Grant the net-bind capability so caddy can still listen on ports < 1024
-# (e.g. 80/443) without running as root.
-RUN apk add --no-cache libcap \
-    && setcap cap_net_bind_service=+ep /usr/bin/caddy \
-    && apk del libcap
+# No file capabilities are set on the binary. An effective-bit file capability
+# (setcap cap_net_bind_service=+ep) makes the kernel refuse to execve() the
+# binary under NoNewPrivs (Kubernetes allowPrivilegeEscalation: false with all
+# capabilities dropped), failing with "operation not permitted". Deployments
+# should listen on high ports (>= 1024); to bind privileged ports, grant
+# NET_BIND_SERVICE via the container securityContext instead.
 USER caddy
 ENTRYPOINT ["/usr/bin/caddy"]
