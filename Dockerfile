@@ -11,7 +11,7 @@ RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 # There is no guarantee this is the latest TAG
 RUN /go/bin/xcaddy build --with github.com/loafoe/caddy-token@{{TAG}}
 
-FROM alpine:3.22@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e893909057601
+FROM alpine:3.24@sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4
 # Run as an unprivileged user rather than root.
 RUN addgroup -S caddy && adduser -S -G caddy caddy
 COPY --from=builder /build/caddy /usr/bin/caddy
