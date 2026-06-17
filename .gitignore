@@ -5,3 +5,4 @@ caddy
 tokenfile
 Caddyfile
 .claude/
+/bin/
