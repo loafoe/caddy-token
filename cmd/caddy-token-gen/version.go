@@ -5,11 +5,18 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
+
+// pseudoVersionRE matches a Go pseudo-version's trailing timestamp and commit,
+// e.g. v1.1.2-0.20260617112814-04145d123848 -> "20260617112814", "04145d123848".
+// Used as a fallback when building from a proxy-downloaded module, where Go does
+// not embed the vcs.revision/vcs.time build settings.
+var pseudoVersionRE = regexp.MustCompile(`(\d{14})-([0-9a-f]{12})$`)
 
 // Build metadata. These default to "dev"/"none" and can be overridden at build
 // time with -ldflags, e.g.:
@@ -59,6 +66,19 @@ func resolveBuildInfo() (ver, rev, built string) {
 	}
 	if modified && rev != "none" {
 		rev += "-dirty"
+	}
+
+	// Proxy-downloaded modules carry no vcs.* settings; recover the commit and
+	// build date from the pseudo-version's trailing timestamp-commit segment.
+	if m := pseudoVersionRE.FindStringSubmatch(ver); m != nil {
+		if rev == "none" {
+			rev = m[2]
+		}
+		if built == "unknown" {
+			t := m[1] // YYYYMMDDhhmmss
+			built = fmt.Sprintf("%s-%s-%sT%s:%s:%sZ",
+				t[0:4], t[4:6], t[6:8], t[8:10], t[10:12], t[12:14])
+		}
 	}
 	return ver, rev, built
 }
