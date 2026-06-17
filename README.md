@@ -571,6 +571,14 @@ go install github.com/loafoe/caddy-token/cmd/caddy-token-gen@latest
 caddy-token-gen g -e client-test -r us-east -p fake -o fake -k "your-secret-signing-key"
 ```
 
+Use `--ttl` to set a token lifetime (the value is any Go duration, e.g. `720h`). The
+token is rejected after it expires. When `--ttl` is omitted (or zero), the token
+never expires — prefer setting one.
+
+```shell
+caddy-token-gen g -e client-test -r us-east -p fake -o fake -k "your-secret-signing-key" --ttl 720h
+```
+
 # Verification
 
 The Docker images published to GitHub Container Registry (`ghcr.io/loafoe/caddy-token`) are signed using [Cosign](https://github.com/sigstore/cosign) with keyless signing (OIDC via GitHub Actions). We also generate and attest a Software Bill of Materials (SBOM) in SPDX format for each image.
