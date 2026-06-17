@@ -142,15 +142,3 @@ func TestVerifyAPIKeyCorruptedToken(t *testing.T) {
 		})
 	}
 }
-
-func TestVerifyAPIKeyExpired(t *testing.T) {
-	// This test would be valuable but requires modifying the VerifyAPIKey function
-	// to check token expiration. It's mentioned here as a suggestion for
-	// future enhancement of the API.
-
-	t.Skip("Token expiration check not implemented in VerifyAPIKey")
-
-	// If implemented, the test would:
-	// 1. Generate a token with an expiration in the past
-	// 2. Verify the token and expect it to fail due to expiration
-}
