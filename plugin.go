@@ -256,7 +256,7 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 						r.Header.Set(scopeIDHeader, result.Org)
 					}
 					if m.Debug {
-						m.logger.Info("SPIFFE JWT authenticated",
+						m.logger.Debug("SPIFFE JWT authenticated",
 							zap.String("spiffeID", result.SpiffeID.String()),
 							zap.String("org", result.Org))
 					}

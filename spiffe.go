@@ -711,7 +711,7 @@ func (v *SpiffeValidator) ValidateJWT(ctx context.Context, tokenString string) (
 	org := td.ExtractOrg(spiffeID, claimsMap, v.config.DefaultOrg)
 
 	if v.config.Debug {
-		v.logger.Info("SPIFFE JWT validated",
+		v.logger.Debug("SPIFFE JWT validated",
 			zap.String("spiffeID", sub),
 			zap.String("trustDomain", spiffeID.TrustDomain),
 			zap.String("org", org))
