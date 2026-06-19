@@ -5,7 +5,7 @@ go 1.25.1
 require (
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/caddyserver/caddy/v2 v2.11.4
-	github.com/coreos/go-oidc/v3 v3.18.0
+	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
