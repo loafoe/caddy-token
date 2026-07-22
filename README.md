@@ -65,6 +65,20 @@ token {
         debug <true|false>
         default_org <organization_name>
     }
+    spiffe {
+        workload_socket <socket_path>
+        trust_domain <domain> {
+            jwks_url <url>
+            audience <audience>
+            org <organization>
+            org_from_path <true|false>
+            org_path_index <index>
+            org_claim <claim_name>
+        }
+        allowed_ids <pattern>
+        default_org <organization>
+        debug <true|false>
+    }
     injectOrgHeader <true|false>
     allowUpstreamAuth <true|false>
     tenantOrgClaim <claim_name>
@@ -79,6 +93,8 @@ Specifies a file containing static API tokens.
 
 **Syntax:** `file <path_to_token_file>`
 
+**Header:** Clients pass static tokens in the `X-Api-Key` header (e.g. `X-Api-Key: <token>`), via `Authorization: Bearer <token>`, or as an HTTP Basic Auth password.
+
 **Example:**
 ```caddyfile
 token {
@@ -88,6 +104,8 @@ token {
 
 ### `jwt`
 Configures JWT token validation using an OIDC issuer.
+
+**Header:** Clients pass JWT tokens in the `X-Id-Token` header (e.g. `X-Id-Token: <token>`).
 
 **Sub-directives:**
 - `issuer <url>` - OIDC issuer URL for token validation
@@ -107,11 +125,15 @@ token {
 ```
 
 ### `signed`
-Configures signed API key validation.
+Configures signed API key validation. Signed API keys (minted using `caddy-token-gen`) encode tenant metadata (such as organization and scopes) and can be HMAC-signed (v2) or AES-GCM encrypted (v3).
+
+**Header:** Clients pass signed API keys in the `X-Api-Key` request header (e.g., `X-Api-Key: lst_...`). Alternatively, `Authorization: Bearer <token>` or HTTP Basic Auth password can also be used.
+
+**Upstream Header Injection:** When a valid signed API key is authenticated, the plugin automatically extracts the embedded organization name and sets the `X-Scope-OrgID` request header for upstream services.
 
 **Sub-directives:**
-- `key <signing_key>` - The signing key for API key validation
-- `scope <name>` - Required scope (can be specified multiple times)
+- `key <signing_key>` - The secret key for API key validation (HMAC key for v2, 16+ byte AES key for v3)
+- `scope <name>` - Required scope (can be specified multiple times; verified against scopes embedded in the token)
 
 **Example:**
 ```caddyfile
@@ -183,6 +205,7 @@ Specifies which JWT claim to use for tenant organization mapping.
 token {
     tenantOrgClaim ort
 }
+```
 
 ### `debug`
 Enables top-level debug logging.
@@ -195,7 +218,6 @@ Enables top-level debug logging.
 token {
     debug true
 }
-```
 ```
 
 ## Complete Configuration Examples
@@ -254,6 +276,16 @@ token {
     
     reverse_proxy api-server:8000
 }
+```
+
+**Client Request Example:**
+
+```shell
+# Generate a signed API key using caddy-token-gen:
+caddy-token-gen g -v 2 -k "your-secret-signing-key" -o my-org -r us-east -p proj -e prod -s api:read -s api:write
+
+# Pass the token in the X-Api-Key header:
+curl -H "X-Api-Key: lst_..." http://localhost:8080/
 ```
 
 ### Client Certificate Authentication
@@ -557,26 +589,44 @@ The plugin checks for authentication in the following order:
 
 # caddy-token-gen CLI tool
 
-A companion CLI tool is available to generate static tokens for use with this plugin.
+A companion CLI tool is available to generate and verify signed API keys (versions 2 & 3) and static tokens (version 1) for use with this plugin.
 
-## install
+## Install
 
 ```shell
 go install github.com/loafoe/caddy-token/cmd/caddy-token-gen@latest
 ```
 
-## usage
+## Usage
+
+### Generate Signed API Keys (`generate` or `g`)
 
 ```shell
-caddy-token-gen g -e client-test -r us-east -p fake -o fake -k "your-secret-signing-key"
+caddy-token-gen g -v 2 -k "your-secret-signing-key" -o my-org -r us-east -p my-project -e prod -s api:read -s api:write --ttl 720h
 ```
 
-Use `--ttl` to set a token lifetime (the value is any Go duration, e.g. `720h`). The
-token is rejected after it expires. When `--ttl` is omitted (or zero), the token
-never expires — prefer setting one.
+**Flags:**
+- `-k, --key`: Signing key for API key generation (HMAC key for v2, 16+ byte AES key for v3).
+- `-v, --version`: Token version (`2` for HMAC signed, default; `3` for AES-GCM encrypted; `1` for static).
+- `-o, --organization`: Organization ID (required). Embedded into token and injected into `X-Scope-OrgID` upstream header upon authentication.
+- `-r, --region`: Region ID (required).
+- `-p, --project`: Project ID.
+- `-e, --environment`: Environment ID.
+- `-s, --scopes`: Scopes to assign to the token (repeatable flag).
+- `--ttl`: Token lifetime (e.g. `720h` or `30m`). When omitted or set to `0`, the token never expires.
+
+### Token Versions
+
+- **Version 2 (Default)**: HMAC-SHA256 signed API key (`lst_<base64payload>.<signature>`). Validated against the configured signing key.
+- **Version 3**: AES-GCM encrypted API key (`lst_<hex_ciphertext>`). Requires a signing key of at least 16 characters.
+- **Version 1**: Static un-signed API key (`lst_<base64payload>`). For static token file configurations.
+
+### Verify API Keys (`verify` or `v`)
+
+Validate a signed API key offline using the signing key:
 
 ```shell
-caddy-token-gen g -e client-test -r us-east -p fake -o fake -k "your-secret-signing-key" --ttl 720h
+caddy-token-gen verify -k "your-secret-signing-key" -t "lst_..."
 ```
 
 # Verification
