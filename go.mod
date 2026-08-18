@@ -11,7 +11,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spiffe/go-spiffe/v2 v2.8.1
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.0
 	go.uber.org/zap v1.28.0
 )
 
@@ -44,7 +44,6 @@ require (
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgraph-io/badger v1.6.2 // indirect
 	github.com/dgraph-io/badger/v2 v2.2007.4 // indirect
 	github.com/dgraph-io/ristretto v0.2.0 // indirect
@@ -91,7 +90,6 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
 	github.com/pires/go-proxyproto v0.12.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
