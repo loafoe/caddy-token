@@ -1,5 +1,5 @@
 # Pinned by digest for reproducible, tamper-evident builds.
-FROM golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS builder
+FROM golang:1.27@sha256:c5b07c17f54c5f22230c4b4da6e90249165cf55368e01a52808cb92064e18836 AS builder
 WORKDIR /build
 COPY go.mod .
 COPY go.sum .
