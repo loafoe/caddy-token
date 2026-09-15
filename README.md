@@ -49,6 +49,9 @@ The official OCI images published from this repo (`ghcr.io/loafoe/caddy-token`) 
 ```shell
 xcaddy build v2.11.2 --with github.com/loafoe/caddy-token --with github.com/loafoe/caddy-mirror
 ```
+
+> **Use a pinned release tag (e.g. `ghcr.io/loafoe/caddy-token:v1.2.0`), not `:latest`.** Every tagged release is reproducibly built, signed, and SBOM-attested (see [Verify Image Signature](#verify-image-signature)); `:latest` and `:main` are unpinned moving targets and only reflect whatever most recently landed on `main`.
+
 # Configuration
 
 The `token` directive supports multiple authentication methods and configuration options.
