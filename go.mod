@@ -7,7 +7,7 @@ require (
 	github.com/caddyserver/caddy/v2 v2.11.4
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spiffe/go-spiffe/v2 v2.8.1
