@@ -384,7 +384,7 @@ func newWorkloadBundleSource(ctx context.Context, socketPath string, logger *zap
 
 func (s *workloadBundleSource) watchBundles(ctx context.Context) {
 	err := s.client.WatchJWTBundles(ctx, &bundleWatcher{source: s})
-	if err != nil && ctx.Err() == nil {
+	if ctx.Err() == nil {
 		s.logger.Error("JWT bundle watcher stopped", zap.Error(err))
 	}
 }
