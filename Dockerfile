@@ -9,7 +9,11 @@ RUN go mod download
 COPY . .
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 # There is no guarantee this is the latest TAG
-RUN /go/bin/xcaddy build --with github.com/loafoe/caddy-token@{{TAG}}
+# caddy-mirror is versioned independently of this repo; bump its pinned tag
+# below when a new caddy-mirror release should be picked up by default.
+RUN /go/bin/xcaddy build \
+    --with github.com/loafoe/caddy-token@{{TAG}} \
+    --with github.com/loafoe/caddy-mirror@v0.1.1
 
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 # Run as an unprivileged user rather than root.

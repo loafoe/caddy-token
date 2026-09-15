@@ -43,6 +43,12 @@ After xcaddy installation you can build caddy with this plugin by executing:
 ```shell
 xcaddy build v2.11.2 --with github.com/loafoe/caddy-token
 ```
+
+The official OCI images published from this repo (`ghcr.io/loafoe/caddy-token`) also bundle [caddy-mirror](https://github.com/loafoe/caddy-mirror) by default, so `reverse_proxy ... { transport mirror { ... } }` is available out of the box. See the [Dockerfile](Dockerfile) for the pinned version. If you're building your own binary and want the same behavior, add it to your xcaddy build:
+
+```shell
+xcaddy build v2.11.2 --with github.com/loafoe/caddy-token --with github.com/loafoe/caddy-mirror
+```
 # Configuration
 
 The `token` directive supports multiple authentication methods and configuration options.
