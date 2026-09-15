@@ -1,6 +1,6 @@
 module github.com/loafoe/caddy-token
 
-go 1.25.1
+go 1.27.1
 
 require (
 	github.com/avast/retry-go/v4 v4.7.0

@@ -1,5 +1,5 @@
 # Pinned by digest for reproducible, tamper-evident builds.
-FROM golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS builder
+FROM golang:1.27.1@sha256:512690a5660563b57d37ecc31129e7f136e831db2aed24a1dbeb8ad7380dc0fa AS builder
 WORKDIR /build
 COPY go.mod .
 COPY go.sum .
@@ -13,7 +13,7 @@ RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 # below when a new caddy-mirror release should be picked up by default.
 RUN /go/bin/xcaddy build \
     --with github.com/loafoe/caddy-token@{{TAG}} \
-    --with github.com/loafoe/caddy-mirror@v0.1.1
+    --with github.com/loafoe/caddy-mirror@v0.1.2
 
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 # Run as an unprivileged user rather than root.
