@@ -9,7 +9,6 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 const metricsNamespace = "caddytoken"
@@ -23,33 +22,60 @@ type tenantMetrics struct {
 }
 
 // initTenantMetrics registers the tenant activity counters on ctx's shared
-// Prometheus registry. Safe to call once per Middleware instance; Provision
-// is only invoked once per module instantiation by Caddy.
+// Prometheus registry. A Caddyfile with more than one server block that each
+// configure a token{} handler (e.g. separate :80 and :443 listeners sharing
+// one Caddyfile) provisions one Middleware instance per block, and Caddy
+// calls Provision on each -- all against the same shared registry. The
+// second instance's registration attempt would otherwise panic ("duplicate
+// metrics collector registration attempted"), so registerOrReuse recovers
+// the already-registered collector instead and every instance shares (and
+// therefore correctly aggregates into) the same counters.
 func initTenantMetrics(ctx caddy.Context) *tenantMetrics {
 	registry := ctx.GetMetricsRegistry()
 	labels := []string{"tenant", "path", "method", "code"}
 	byteLabels := []string{"tenant", "path"}
 
 	return &tenantMetrics{
-		requestsTotal: promauto.With(registry).NewCounterVec(prometheus.CounterOpts{
+		requestsTotal: registerOrReuseCounterVec(registry, prometheus.CounterOpts{
 			Namespace: metricsNamespace,
 			Subsystem: "tenant",
 			Name:      "requests_total",
 			Help:      "Count of upstream requests per tenant after X-Scope-OrgID resolution.",
 		}, labels),
-		requestBytesTotal: promauto.With(registry).NewCounterVec(prometheus.CounterOpts{
+		requestBytesTotal: registerOrReuseCounterVec(registry, prometheus.CounterOpts{
 			Namespace: metricsNamespace,
 			Subsystem: "tenant",
 			Name:      "request_bytes_total",
 			Help:      "Bytes read from tenant request bodies (ingest) as they are forwarded upstream.",
 		}, byteLabels),
-		responseBytesTotal: promauto.With(registry).NewCounterVec(prometheus.CounterOpts{
+		responseBytesTotal: registerOrReuseCounterVec(registry, prometheus.CounterOpts{
 			Namespace: metricsNamespace,
 			Subsystem: "tenant",
 			Name:      "response_bytes_total",
 			Help:      "Bytes written back to the tenant in upstream responses (egress).",
 		}, byteLabels),
 	}
+}
+
+// registerOrReuseCounterVec registers a new CounterVec on registry, or -- if
+// a collector under the same fully-qualified name is already registered --
+// returns that existing collector instead of panicking. Panics only if the
+// name collides with a collector of a different type, which would indicate a
+// real bug (e.g. a Help/label mismatch) rather than a benign re-provision.
+func registerOrReuseCounterVec(registry prometheus.Registerer, opts prometheus.CounterOpts, labelNames []string) *prometheus.CounterVec {
+	cv := prometheus.NewCounterVec(opts, labelNames)
+	if err := registry.Register(cv); err != nil {
+		are, ok := err.(prometheus.AlreadyRegisteredError)
+		if !ok {
+			panic(err)
+		}
+		existing, ok := are.ExistingCollector.(*prometheus.CounterVec)
+		if !ok {
+			panic(err)
+		}
+		return existing
+	}
+	return cv
 }
 
 // countingReadCloser wraps an io.ReadCloser and counts bytes as they are

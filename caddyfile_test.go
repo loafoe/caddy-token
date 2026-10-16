@@ -8,7 +8,10 @@ import (
 	"github.com/loafoe/caddy-token/keys"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -665,4 +668,75 @@ func TestClientCADirectiveParsing(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCaddyfileMultipleServerBlocksWithMetrics reproduces the otlp-gateway
+// production incident at the full Caddyfile level: loadbalancer.enabled mode
+// runs separate :8080 and :8443 server blocks that each configure their own
+// "token { metrics true }" handler. Caddy provisions one Middleware instance
+// per block against the same process-wide metrics registry; before the fix,
+// loading this config panicked and crashed the whole process instead of
+// starting. Nothing here would run if that panic weren't fixed, since Caddy
+// never recovers panics raised while provisioning modules.
+func TestCaddyfileMultipleServerBlocksWithMetrics(t *testing.T) {
+	oneHourFromNow := time.Now().Add(time.Hour)
+	v2Token, _, err := keys.GenerateAPIKey("2", "test", "test", "test", "test", "test", []string{"test"}, oneHourFromNow)
+	require.NoError(t, err)
+
+	// Admin API must be exposed on port 2999 to match what caddytest.Tester does
+	config := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+		order token first
+		servers {
+			metrics
+		}
+	}
+
+	:12410 {
+		metrics /metrics
+	}
+
+	http://127.0.0.1:12411 {
+		token {
+			metrics true
+			signed {
+				key test
+			}
+		}
+		respond 200
+	}
+
+	http://127.0.0.1:12412 {
+		token {
+			metrics true
+			signed {
+				key test
+			}
+		}
+		respond 200
+	}
+	`
+
+	tester := caddytest.NewTester(t)
+	tester.InitServer(config, "caddyfile")
+
+	// Each listener's token{} handler shares one counter: a request against
+	// either must be reflected in the same caddytoken_tenant_requests_total
+	// series, not panic and not silently split into separate, unregistered
+	// counters.
+	tester.AssertPostResponseBody("http://127.0.0.1:12411", []string{"X-Api-Key: " + v2Token, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
+	tester.AssertPostResponseBody("http://127.0.0.1:12412", []string{"X-Api-Key: " + v2Token, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "")
+
+	resp, err := http.Get("http://127.0.0.1:12410/metrics")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	metrics := string(body)
+	assert.Contains(t, metrics, "caddytoken_tenant_requests_total")
+	assert.Equal(t, 1, strings.Count(metrics, "# TYPE caddytoken_tenant_requests_total"),
+		"the metric must be registered exactly once despite two token{} handlers provisioning it")
 }

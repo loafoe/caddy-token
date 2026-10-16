@@ -2,11 +2,13 @@ package token
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -109,4 +111,38 @@ func TestServeHTTP_NoMetricsWhenDisabled(t *testing.T) {
 
 	err := m.ServeHTTP(rw, req, next)
 	assert.NoError(t, err)
+}
+
+// TestInitTenantMetrics_MultipleServerBlocksShareRegistry reproduces the
+// production panic: a Caddyfile with more than one server block that each
+// configure "token { metrics true }" (e.g. separate :8080 and :8443
+// listeners, as otlp-gateway's loadbalancer.enabled mode produces) gets one
+// Middleware instance per block, and Caddy calls Provision -> initTenantMetrics
+// on each against the *same* shared registry. Before the fix, the second call
+// panicked with "duplicate metrics collector registration attempted" instead
+// of returning.
+func TestInitTenantMetrics_MultipleServerBlocksShareRegistry(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	var first, second *tenantMetrics
+	require.NotPanics(t, func() {
+		first = initTenantMetrics(ctx)
+	})
+	require.NotPanics(t, func() {
+		second = initTenantMetrics(ctx)
+	}, "a second token{} handler provisioned against the same registry must not panic")
+
+	// Not just "didn't panic" -- the second instance must share the exact
+	// same collectors as the first, so activity recorded by either server
+	// block's handler aggregates into one series instead of silently
+	// splitting (or worse, one of the two going unregistered/unexported).
+	assert.Same(t, first.requestsTotal, second.requestsTotal)
+	assert.Same(t, first.requestBytesTotal, second.requestBytesTotal)
+	assert.Same(t, first.responseBytesTotal, second.responseBytesTotal)
+
+	first.requestsTotal.WithLabelValues("tenant-a", "/loki/api/v1/push", "POST", "204").Inc()
+	second.requestsTotal.WithLabelValues("tenant-a", "/loki/api/v1/push", "POST", "204").Inc()
+	assert.Equal(t, float64(2), testutil.ToFloat64(
+		second.requestsTotal.WithLabelValues("tenant-a", "/loki/api/v1/push", "POST", "204")))
 }
