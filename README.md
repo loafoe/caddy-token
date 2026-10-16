@@ -91,6 +91,7 @@ token {
     injectOrgHeader <true|false>
     allowUpstreamAuth <true|false>
     tenantOrgClaim <claim_name>
+    metrics <true|false>
     debug <true|false>
 }
 ```
@@ -216,6 +217,30 @@ token {
 }
 ```
 
+### `metrics`
+Enables per-tenant activity metrics. Once a tenant is resolved (i.e. `X-Scope-OrgID` is set by any of the authentication methods above), the plugin wraps the request and response to record three Prometheus counters, registered on Caddy's shared metrics registry (`caddy.Context.GetMetricsRegistry()`) — the same registry the built-in [`metrics`](https://caddyserver.com/docs/caddyfile/directives/metrics) directive serves on `/metrics`. No separate endpoint or database is needed; just add a `metrics` block somewhere in your config to expose it.
+
+**Syntax:** `metrics <true|false>`
+**Default:** `false`
+
+**Metrics exposed:**
+- `caddytoken_tenant_requests_total{tenant, path, method, code}` — count of requests per tenant
+- `caddytoken_tenant_request_bytes_total{tenant, path}` — bytes read from the tenant's request body (ingest), counted as they stream upstream rather than trusted from `Content-Length`
+- `caddytoken_tenant_response_bytes_total{tenant, path}` — bytes written back to the tenant in the response (egress)
+
+Requests where no tenant could be resolved (e.g. authentication failed, or `injectOrgHeader false`) are not counted.
+
+> **Cardinality note:** the `path` label currently uses the raw request path, unbounded. If you're fronting an API with a small number of known routes (e.g. Loki's `/loki/api/v1/push`, `/loki/api/v1/query_range`, ...) this is fine. If arbitrary or high-cardinality paths reach this handler, enumerate the known paths and bucket the rest under e.g. `_other` before enabling this in a cardinality-sensitive environment — not currently implemented.
+
+> **Multi-replica deployments:** counters are process-local and reset to zero on restart, like all Prometheus counters — this is intentional, not a limitation to work around. Prometheus's `rate()`/`increase()` already handle restarts correctly per time series, and with multiple Caddy replicas, each is scraped as its own target (distinguished by `instance`/`pod` labels from service discovery); aggregate across replicas at query time with e.g. `sum by (tenant) (rate(caddytoken_tenant_requests_total[5m]))`. No in-app coordination between replicas is needed or provided.
+
+**Example:**
+```caddyfile
+token {
+    metrics true
+}
+```
+
 ### `debug`
 Enables top-level debug logging.
 
@@ -285,6 +310,36 @@ token {
     
     reverse_proxy api-server:8000
 }
+```
+
+### Per-Tenant Activity Metrics
+Expose per-tenant request counts and ingest/egress byte counters alongside Caddy's own built-in metrics, scraped from a single `/metrics` endpoint — no external billing API or database required.
+
+```caddyfile
+{
+    order token first
+}
+
+:8080 {
+    metrics
+
+    token {
+        signed {
+            key "your-secret-signing-key"
+        }
+        metrics true
+    }
+
+    reverse_proxy loki:3100
+}
+```
+
+`curl :8080/metrics` then includes, alongside Caddy's own `caddy_http_*` series:
+
+```
+caddytoken_tenant_requests_total{tenant="acme",path="/loki/api/v1/push",method="POST",code="204"} 1532
+caddytoken_tenant_request_bytes_total{tenant="acme",path="/loki/api/v1/push"} 48213899
+caddytoken_tenant_response_bytes_total{tenant="acme",path="/loki/api/v1/query_range"} 921044
 ```
 
 **Client Request Example:**

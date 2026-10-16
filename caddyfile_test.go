@@ -292,16 +292,62 @@ func TestCaddyfileClientCAMinimal(t *testing.T) {
 	tester.AssertGetResponse("http://127.0.0.1:12344", 401, "")
 }
 
+func TestMetricsDirectiveParsing(t *testing.T) {
+	tests := []struct {
+		name            string
+		config          string
+		expectedMetrics bool
+		expectError     bool
+	}{
+		{
+			name:            "metrics true",
+			config:          `token { metrics true }`,
+			expectedMetrics: true,
+		},
+		{
+			name:            "metrics false",
+			config:          `token { metrics false }`,
+			expectedMetrics: false,
+		},
+		{
+			name:            "metrics omitted defaults to false",
+			config:          `token { client_ca { } }`,
+			expectedMetrics: false,
+		},
+		{
+			name:        "invalid metrics value",
+			config:      `token { metrics notabool }`,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser(tt.config)
+			m := &token.Middleware{}
+
+			err := m.UnmarshalCaddyfile(d)
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedMetrics, m.Metrics)
+		})
+	}
+}
+
 func TestSpiffeDirectiveParsing(t *testing.T) {
 	tests := []struct {
-		name                  string
-		config                string
-		expectError           bool
-		expectedTrustDomains  int
-		expectedAllowedIDs    int
-		expectedDefaultOrg    string
-		expectedDebug         bool
-		checkTrustDomain      func(t *testing.T, m *token.Middleware)
+		name                 string
+		config               string
+		expectError          bool
+		expectedTrustDomains int
+		expectedAllowedIDs   int
+		expectedDefaultOrg   string
+		expectedDebug        bool
+		checkTrustDomain     func(t *testing.T, m *token.Middleware)
 	}{
 		{
 			name: "spiffe with single trust domain",
@@ -535,12 +581,12 @@ func TestSpiffeDirectiveParsing(t *testing.T) {
 
 func TestClientCADirectiveParsing(t *testing.T) {
 	tests := []struct {
-		name           string
-		config         string
-		expectedCA     bool
-		expectedDebug  bool
-		expectedOrg    string
-		expectError    bool
+		name          string
+		config        string
+		expectedCA    bool
+		expectedDebug bool
+		expectedOrg   string
+		expectError   bool
 	}{
 		{
 			name: "client_ca with all options",
@@ -606,9 +652,9 @@ func TestClientCADirectiveParsing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			d := caddyfile.NewTestDispenser(tt.config)
 			m := &token.Middleware{}
-			
+
 			err := m.UnmarshalCaddyfile(d)
-			
+
 			if tt.expectError {
 				require.Error(t, err)
 			} else {

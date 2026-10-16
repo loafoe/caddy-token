@@ -267,6 +267,15 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				m.TenantOrgClaim = d.Val()
+			case "metrics":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				if enable := d.Val(); enable == "true" {
+					m.Metrics = true
+				} else if enable != "false" {
+					return d.Errf("metrics must be 'true' or 'false', got '%s'", enable)
+				}
 			default:
 				return d.Errf("unrecognized subdirective '%s'", d.Val())
 			}

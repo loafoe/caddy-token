@@ -49,6 +49,8 @@ type Middleware struct {
 	DefaultOrg        string
 	Spiffe            *SpiffeConfig
 	spiffeValidator   *SpiffeValidator
+	Metrics           bool
+	metrics           *tenantMetrics
 }
 
 func (m *Middleware) CaddyModule() caddy.ModuleInfo {
@@ -62,6 +64,11 @@ func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 	err := m.CheckTokenAndInjectHeaders(r)
 	if err != nil {
 		return err
+	}
+	if m.metrics != nil {
+		if tenant := r.Header.Get(scopeIDHeader); tenant != "" {
+			return m.recordTenantActivity(w, r, tenant, next)
+		}
 	}
 	return next.ServeHTTP(w, r)
 }
@@ -139,6 +146,9 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 	}
 	if m.verifier == nil && len(m.tokens) == 0 && m.SigningKey == "" && !m.ClientCA && m.spiffeValidator == nil {
 		return fmt.Errorf("no tokens, issuer, client CA, or SPIFFE config provided")
+	}
+	if m.Metrics {
+		m.metrics = initTenantMetrics(ctx)
 	}
 	m.logger.Info("provisioned caddy-token middleware",
 		zap.String("issuer", m.Issuer),
