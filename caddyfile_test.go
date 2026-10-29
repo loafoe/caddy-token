@@ -731,7 +731,7 @@ func TestCaddyfileMultipleServerBlocksWithMetrics(t *testing.T) {
 
 	resp, err := http.Get("http://127.0.0.1:12410/metrics")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, 200, resp.StatusCode)
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
