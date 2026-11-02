@@ -113,12 +113,13 @@ func discoveryHandler(w http.ResponseWriter, r *http.Request) {
 func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	// Create the token
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"iss":    "http://127.0.0.1:12000",
-		"sub":    "1234567890",
-		"name":   "John Doe",
-		"email":  "john.doe@example.com",
-		"exp":    time.Now().Add(time.Hour * 1).Unix(),
-		"groups": []string{"admin", "test"},
+		"iss":        "http://127.0.0.1:12000",
+		"sub":        "1234567890",
+		"name":       "John Doe",
+		"email":      "john.doe@example.com",
+		"exp":        time.Now().Add(time.Hour * 1).Unix(),
+		"groups":     []string{"admin", "test"},
+		"department": "tenant-x",
 	})
 	token.Header["kid"] = "1"
 

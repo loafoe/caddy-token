@@ -1,6 +1,7 @@
 package token
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/loafoe/caddy-token/keys"
@@ -461,4 +463,316 @@ func TestCheckTokenAndInjectHeaders_AuthenticationPriority(t *testing.T) {
 	// Should succeed and use client cert org (higher priority)
 	assert.NoError(t, err)
 	assert.Equal(t, "cert-org", req.Header.Get("X-Scope-OrgID"))
+}
+
+func TestResolveOrgFromClaim(t *testing.T) {
+	tests := []struct {
+		name        string
+		org         string
+		orgClaim    string
+		claims      map[string]any
+		expected    string
+		expectedOK  bool
+		expectedErr error
+	}{
+		{
+			name:       "static org",
+			org:        "static-org",
+			claims:     map[string]any{},
+			expected:   "static-org",
+			expectedOK: true,
+		},
+		{
+			name:       "org from claim",
+			orgClaim:   "tenant_id",
+			claims:     map[string]any{"tenant_id": "claim-org"},
+			expected:   "claim-org",
+			expectedOK: true,
+		},
+		{
+			name:       "static org takes precedence over claim",
+			org:        "static-org",
+			orgClaim:   "tenant_id",
+			claims:     map[string]any{"tenant_id": "claim-org"},
+			expected:   "static-org",
+			expectedOK: true,
+		},
+		{
+			name:       "missing claim is not resolved",
+			orgClaim:   "tenant_id",
+			claims:     map[string]any{},
+			expected:   "",
+			expectedOK: false,
+		},
+		{
+			name:       "non-string claim value is not resolved",
+			orgClaim:   "tenant_id",
+			claims:     map[string]any{"tenant_id": 42},
+			expected:   "",
+			expectedOK: false,
+		},
+		{
+			name:       "empty string claim value is not resolved",
+			orgClaim:   "tenant_id",
+			claims:     map[string]any{"tenant_id": ""},
+			expected:   "",
+			expectedOK: false,
+		},
+		{
+			name:       "no extraction config is not resolved",
+			claims:     map[string]any{"tenant_id": "claim-org"},
+			expected:   "",
+			expectedOK: false,
+		},
+		{
+			name:       "array index selects first element",
+			orgClaim:   "groups[0]",
+			claims:     map[string]any{"groups": []any{"acme", "other"}},
+			expected:   "acme",
+			expectedOK: true,
+		},
+		{
+			name:       "array index selects second element",
+			orgClaim:   "groups[1]",
+			claims:     map[string]any{"groups": []any{"acme", "other"}},
+			expected:   "other",
+			expectedOK: true,
+		},
+		{
+			name:        "static org takes precedence over array index claim",
+			org:         "static-org",
+			orgClaim:    "groups[0]",
+			claims:      map[string]any{"groups": []any{}},
+			expected:    "static-org",
+			expectedOK:  true,
+			expectedErr: nil,
+		},
+		{
+			name:        "empty array denies access",
+			orgClaim:    "groups[0]",
+			claims:      map[string]any{"groups": []any{}},
+			expectedErr: ErrOrgClaimNoAccess,
+		},
+		{
+			name:        "index out of range denies access",
+			orgClaim:    "groups[2]",
+			claims:      map[string]any{"groups": []any{"acme", "other"}},
+			expectedErr: ErrOrgClaimNoAccess,
+		},
+		{
+			name:        "missing array claim denies access",
+			orgClaim:    "groups[0]",
+			claims:      map[string]any{},
+			expectedErr: ErrOrgClaimNoAccess,
+		},
+		{
+			name:        "non-array claim with index syntax denies access",
+			orgClaim:    "groups[0]",
+			claims:      map[string]any{"groups": "not-an-array"},
+			expectedErr: ErrOrgClaimNoAccess,
+		},
+		{
+			name:        "empty string element at index denies access",
+			orgClaim:    "groups[0]",
+			claims:      map[string]any{"groups": []any{""}},
+			expectedErr: ErrOrgClaimNoAccess,
+		},
+		{
+			name:        "non-string element at index denies access",
+			orgClaim:    "groups[0]",
+			claims:      map[string]any{"groups": []any{42}},
+			expectedErr: ErrOrgClaimNoAccess,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			org, ok, err := resolveOrgFromClaim(tt.org, tt.orgClaim, tt.claims)
+			if tt.expectedErr != nil {
+				assert.ErrorIs(t, err, tt.expectedErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, org)
+			assert.Equal(t, tt.expectedOK, ok)
+		})
+	}
+}
+
+func TestMatchJWTMapping(t *testing.T) {
+	tests := []struct {
+		name            string
+		mappings        []JWTGroupMapping
+		have            []string
+		expectedMatched bool
+		expectedMapping JWTGroupMapping
+	}{
+		{
+			name:            "no mappings matches unconditionally",
+			mappings:        nil,
+			have:            []string{"anything"},
+			expectedMatched: true,
+			expectedMapping: JWTGroupMapping{},
+		},
+		{
+			name:            "single mapping with no groups matches unconditionally",
+			mappings:        []JWTGroupMapping{{Org: "default-org"}},
+			have:            nil,
+			expectedMatched: true,
+			expectedMapping: JWTGroupMapping{Org: "default-org"},
+		},
+		{
+			name:            "single mapping requires all groups present",
+			mappings:        []JWTGroupMapping{{Groups: []string{"admin", "test"}, Org: "admin-org"}},
+			have:            []string{"admin", "test", "extra"},
+			expectedMatched: true,
+			expectedMapping: JWTGroupMapping{Groups: []string{"admin", "test"}, Org: "admin-org"},
+		},
+		{
+			name:            "single mapping fails when a required group is missing",
+			mappings:        []JWTGroupMapping{{Groups: []string{"admin", "test"}, Org: "admin-org"}},
+			have:            []string{"admin"},
+			expectedMatched: false,
+		},
+		{
+			name: "first matching mapping wins over a later catch-all",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "admin-org"},
+				{Org: "default-org"},
+			},
+			have:            []string{"admin"},
+			expectedMatched: true,
+			expectedMapping: JWTGroupMapping{Groups: []string{"admin"}, Org: "admin-org"},
+		},
+		{
+			name: "falls through to a later mapping when an earlier one doesn't match",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "admin-org"},
+				{Groups: []string{"viewer"}, Org: "viewer-org"},
+			},
+			have:            []string{"viewer"},
+			expectedMatched: true,
+			expectedMapping: JWTGroupMapping{Groups: []string{"viewer"}, Org: "viewer-org"},
+		},
+		{
+			name: "no mapping matches when none of the group requirements are satisfied",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "admin-org"},
+				{Groups: []string{"viewer"}, Org: "viewer-org"},
+			},
+			have:            []string{"guest"},
+			expectedMatched: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mapping, matched := matchJWTMapping(tt.mappings, tt.have)
+			assert.Equal(t, tt.expectedMatched, matched)
+			if tt.expectedMatched {
+				assert.Equal(t, tt.expectedMapping, mapping)
+			}
+		})
+	}
+}
+
+func TestValidateJWTMappings(t *testing.T) {
+	tests := []struct {
+		name        string
+		mappings    []JWTGroupMapping
+		expectError bool
+		errContains []string
+	}{
+		{
+			name:     "no mappings",
+			mappings: nil,
+		},
+		{
+			name: "single mapping",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "admin-org"},
+			},
+		},
+		{
+			name: "disjoint groups map to different orgs",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "admin-org"},
+				{Groups: []string{"viewer"}, Org: "viewer-org"},
+			},
+		},
+		{
+			name: "catch-all alongside a specific group is not a conflict",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "admin-org"},
+				{Org: "default-org"},
+			},
+		},
+		{
+			name: "identical mapping repeated is redundant but not ambiguous",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "admin-org"},
+				{Groups: []string{"admin", "extra"}, Org: "admin-org"},
+			},
+		},
+		{
+			name: "same group maps to two different static orgs",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "platform"},
+				{Groups: []string{"admin"}, Org: "security"},
+			},
+			expectError: true,
+			errContains: []string{`"admin"`, `org "platform"`, `org "security"`, "jwt block 1", "jwt block 2"},
+		},
+		{
+			name: "same group maps to an org and an org_claim",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "platform"},
+				{Groups: []string{"admin", "extra"}, OrgClaim: "department"},
+			},
+			expectError: true,
+			errContains: []string{`"admin"`, `org "platform"`, `org_claim "department"`},
+		},
+		{
+			name: "same group maps to an explicit org and to no org at all",
+			mappings: []JWTGroupMapping{
+				{Groups: []string{"admin"}, Org: "platform"},
+				{Groups: []string{"admin"}},
+			},
+			expectError: true,
+			errContains: []string{`"admin"`, `org "platform"`, "no org"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateJWTMappings(tt.mappings)
+			if !tt.expectError {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, substr := range tt.errContains {
+				assert.Contains(t, err.Error(), substr)
+			}
+		})
+	}
+}
+
+func TestProvision_AmbiguousJWTMappingsRejected(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	m := &Middleware{
+		JWTMappings: []JWTGroupMapping{
+			{Groups: []string{"admin"}, Org: "platform"},
+			{Groups: []string{"admin"}, Org: "security"},
+		},
+	}
+
+	err := m.Provision(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ambiguous jwt org mapping")
+	assert.Contains(t, err.Error(), `"admin"`)
+	assert.Contains(t, err.Error(), `org "platform"`)
+	assert.Contains(t, err.Error(), `org "security"`)
 }

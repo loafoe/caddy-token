@@ -19,9 +19,13 @@ func init() {
 //
 //	token {
 //	  file <token_file>
-//	  jwt {
-//	    issuer <issuer_url>
+//	  jwt {                               # repeatable: each block is one group->org
+//	    issuer <issuer_url>               # mapping; the first whose groups all match wins
 //	    group <value>
+//	    org <static_org>
+//	    org_claim <claim_name>           # e.g. department, or groups[0] for the
+//	                                      # first element of an array claim
+//	                                      # (an empty/short array denies access)
 //	    ...
 //	  }
 //	  signed {
@@ -75,6 +79,7 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				}
 				m.TokenFile = absPath
 			case "jwt":
+				var mapping JWTGroupMapping
 				for nesting := d.Nesting(); d.NextBlock(nesting); {
 					switch d.Val() {
 					case "verify":
@@ -95,11 +100,26 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.ArgErr()
 						}
 						group := d.Val()
-						m.Groups = append(m.Groups, group)
+						mapping.Groups = append(mapping.Groups, group)
+					case "org":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						mapping.Org = d.Val()
+					case "org_claim":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						mapping.OrgClaim = d.Val()
 					default:
 						return d.Errf("unrecognized subdirective '%s'", d.Val())
 					}
 				}
+				// Every jwt block contributes one mapping, even a bare `jwt
+				// { issuer ... }` with no group/org restriction, so it
+				// matches unconditionally alongside any later, more
+				// specific blocks (see matchJWTMapping).
+				m.JWTMappings = append(m.JWTMappings, mapping)
 			case "signed":
 				for nesting := d.Nesting(); d.NextBlock(nesting); {
 					switch d.Val() {

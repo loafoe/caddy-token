@@ -206,6 +206,317 @@ func TestCaddyfileJWTClaims(t *testing.T) {
 		t.Fatalf("Failed to forge token: %v", err)
 	}
 	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + forged, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 401, "")
+
+	// jwt { org } should always set X-Scope-OrgID to the configured static
+	// org, regardless of claims present in the token.
+	staticOrgConfig := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		route /* {
+		  token {
+            allowUpstreamAuth true
+            jwt {
+                issuer http://127.0.0.1:12000
+                verify false
+                org static-org
+            }
+          }
+	      respond "{http.request.header.X-Scope-Orgid}" 200
+       }
+	}
+	`
+	tester.InitServer(staticOrgConfig, "caddyfile")
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "static-org")
+
+	// jwt { org_claim } should extract the org from the named claim on the
+	// verified token ("department" in the mock token issued by runMockServer).
+	orgClaimConfig := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		route /* {
+		  token {
+            allowUpstreamAuth true
+            jwt {
+                issuer http://127.0.0.1:12000
+                verify false
+                org_claim department
+            }
+          }
+	      respond "{http.request.header.X-Scope-Orgid}" 200
+       }
+	}
+	`
+	tester.InitServer(orgClaimConfig, "caddyfile")
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "tenant-x")
+
+	// jwt { org_claim groups[0] } should select the first element of the
+	// "groups" array claim ([]string{"admin", "test"} in the mock token).
+	orgClaimArrayConfig := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		route /* {
+		  token {
+            allowUpstreamAuth true
+            jwt {
+                issuer http://127.0.0.1:12000
+                verify false
+                org_claim groups[0]
+            }
+          }
+	      respond "{http.request.header.X-Scope-Orgid}" 200
+       }
+	}
+	`
+	tester.InitServer(orgClaimArrayConfig, "caddyfile")
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "admin")
+
+	// jwt { org_claim groups[5] } references an index beyond the array's
+	// length (only 2 elements) and must deny access outright (401), not
+	// fall through to an empty/unrestricted org.
+	orgClaimArrayOutOfRangeConfig := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		route /* {
+		  token {
+            allowUpstreamAuth true
+            jwt {
+                issuer http://127.0.0.1:12000
+                verify false
+                org_claim groups[5]
+            }
+          }
+	      respond "{http.request.header.X-Scope-Orgid}" 200
+       }
+	}
+	`
+	tester.InitServer(orgClaimArrayOutOfRangeConfig, "caddyfile")
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 401, "")
+
+	// Multiple jwt blocks: each is a group->org mapping evaluated in order.
+	// The mock token's groups are ["admin", "test"]. The first block
+	// requires a group the token doesn't have, so it's skipped; the second
+	// block requires "admin" (present) and wins, injecting its org; the
+	// trailing catch-all block (no groups) is never reached.
+	multipleJWTBlocksConfig := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		route /* {
+		  token {
+            allowUpstreamAuth true
+            jwt {
+                issuer http://127.0.0.1:12000
+                verify false
+                group superadmin
+                org superadmin-org
+            }
+            jwt {
+                group admin
+                org admin-org
+            }
+            jwt {
+                org default-org
+            }
+          }
+	      respond "{http.request.header.X-Scope-Orgid}" 200
+       }
+	}
+	`
+	tester.InitServer(multipleJWTBlocksConfig, "caddyfile")
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 200, "admin-org")
+
+	// If no block's group requirement is satisfied (and there's no
+	// catch-all block without a group restriction), access is denied.
+	noMatchingGroupConfig := `
+	{
+		skip_install_trust
+		admin 127.0.0.1:2999
+        order token first
+	}
+
+	http://127.0.0.1:12344 {
+		bind 127.0.0.1
+
+		route /* {
+		  token {
+            allowUpstreamAuth true
+            jwt {
+                issuer http://127.0.0.1:12000
+                verify false
+                group superadmin
+                org superadmin-org
+            }
+            jwt {
+                group nonexistent-group
+                org other-org
+            }
+          }
+	      respond "{http.request.header.X-Scope-Orgid}" 200
+       }
+	}
+	`
+	tester.InitServer(noMatchingGroupConfig, "caddyfile")
+	tester.AssertPostResponseBody("http://127.0.0.1:12344", []string{"X-Id-Token: " + accessToken, "Content-Type: application/json"}, bytes.NewBuffer([]byte("[]")), 401, "")
+}
+
+func TestJWTDirectiveOrgParsing(t *testing.T) {
+	tests := []struct {
+		name             string
+		config           string
+		expectError      bool
+		expectedOrg      string
+		expectedOrgClaim string
+	}{
+		{
+			name: "jwt with static org",
+			config: `token {
+				jwt {
+					issuer http://127.0.0.1:12000
+					org production
+				}
+			}`,
+			expectedOrg: "production",
+		},
+		{
+			name: "jwt with org_claim",
+			config: `token {
+				jwt {
+					issuer http://127.0.0.1:12000
+					org_claim tenant_id
+				}
+			}`,
+			expectedOrgClaim: "tenant_id",
+		},
+		{
+			name: "jwt with both org and org_claim",
+			config: `token {
+				jwt {
+					issuer http://127.0.0.1:12000
+					org production
+					org_claim tenant_id
+				}
+			}`,
+			expectedOrg:      "production",
+			expectedOrgClaim: "tenant_id",
+		},
+		{
+			name: "jwt without org or org_claim",
+			config: `token {
+				jwt {
+					issuer http://127.0.0.1:12000
+				}
+			}`,
+		},
+		{
+			name: "jwt org missing value",
+			config: `token {
+				jwt {
+					issuer http://127.0.0.1:12000
+					org
+				}
+			}`,
+			expectError: true,
+		},
+		{
+			name: "jwt org_claim missing value",
+			config: `token {
+				jwt {
+					issuer http://127.0.0.1:12000
+					org_claim
+				}
+			}`,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser(tt.config)
+			m := &token.Middleware{}
+
+			err := m.UnmarshalCaddyfile(d)
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, m.JWTMappings, 1)
+			assert.Equal(t, tt.expectedOrg, m.JWTMappings[0].Org)
+			assert.Equal(t, tt.expectedOrgClaim, m.JWTMappings[0].OrgClaim)
+		})
+	}
+}
+
+func TestMultipleJWTBlocksDirectiveParsing(t *testing.T) {
+	config := `token {
+		jwt {
+			issuer http://127.0.0.1:12000
+			group admin
+			org admin-org
+		}
+		jwt {
+			group viewer
+			org_claim tenant_id
+		}
+		jwt {
+			org default-org
+		}
+	}`
+
+	d := caddyfile.NewTestDispenser(config)
+	m := &token.Middleware{}
+
+	err := m.UnmarshalCaddyfile(d)
+	require.NoError(t, err)
+
+	require.Len(t, m.JWTMappings, 3)
+
+	assert.Equal(t, "http://127.0.0.1:12000", m.Issuer)
+
+	assert.Equal(t, []string{"admin"}, m.JWTMappings[0].Groups)
+	assert.Equal(t, "admin-org", m.JWTMappings[0].Org)
+
+	assert.Equal(t, []string{"viewer"}, m.JWTMappings[1].Groups)
+	assert.Equal(t, "tenant_id", m.JWTMappings[1].OrgClaim)
+
+	assert.Empty(t, m.JWTMappings[2].Groups)
+	assert.Equal(t, "default-org", m.JWTMappings[2].Org)
 }
 
 func TestCaddyfileClientCA(t *testing.T) {

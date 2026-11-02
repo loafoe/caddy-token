@@ -61,10 +61,12 @@ The `token` directive supports multiple authentication methods and configuration
 ```caddyfile
 token {
     file <token_file>
-    jwt {
-        issuer <issuer_url>
-        verify <true|false>
-        group <group_name>
+    jwt {                          # repeatable - each block is a group->org mapping
+        issuer <issuer_url>        # only needs to be set once, must match across blocks
+        verify <true|false>        # only needs to be set once
+        group <group_name>         # repeatable within a block (AND); omit to match any token
+        org <organization_name>
+        org_claim <claim_name>     # plain claim, or groups[0] for an array element
     }
     signed {
         key <signing_key>
@@ -113,16 +115,31 @@ token {
 ```
 
 ### `jwt`
-Configures JWT token validation using an OIDC issuer.
+Configures JWT token validation using an OIDC issuer. The `jwt` block is
+**repeatable**: each occurrence defines one group→org mapping, which lets a
+single issuer route different group memberships to different
+`X-Scope-OrgID` values.
 
 **Header:** Clients pass JWT tokens in the `X-Id-Token` header (e.g. `X-Id-Token: <token>`).
 
 **Sub-directives:**
-- `issuer <url>` - OIDC issuer URL for token validation
-- `verify <true|false>` - Enable/disable token verification (default: true)
-- `group <name>` - Required group claim (can be specified multiple times)
+- `issuer <url>` - OIDC issuer URL for token validation. Only needs to be set once; if repeated across blocks it must be the same value.
+- `verify <true|false>` - Enable/disable token verification (default: true). Only needs to be set once.
+- `group <name>` - Required group claim for this mapping (can be specified multiple times within a block; all must be present - logical AND). A block with no `group` directives matches any token.
+- `org <name>` - Static organization to inject for this mapping. Takes precedence over `org_claim`.
+- `org_claim <name>` - Extract the organization from a JWT claim for this mapping. Supports plain string claims (`department`) and array-index syntax (`groups[0]`) to select an element of an array claim. If the array is empty, shorter than the index, or missing, access is **denied** (401) rather than falling through.
 
-**Example:**
+**Mapping resolution:** when multiple `jwt` blocks are configured, they're evaluated in the order they're declared. The first block whose required `group`s are all present in the token wins, and its `org`/`org_claim` is used to set `X-Scope-OrgID`. Put more specific (group-restricted) blocks before a catch-all block with no `group` directive. If no block matches, the request is rejected with 401. If a matching block has neither `org` nor `org_claim` set, `tenantOrgClaim` (see below) is used as a fallback.
+
+**Conflict detection:** if the same group name is required by two or more `jwt` blocks that resolve to *different* orgs, the config is rejected at startup with an error naming the group and both conflicting blocks, e.g.:
+```
+ambiguous jwt org mapping: group "admin" resolves to org "platform" in jwt block 1,
+but to org "security" in jwt block 2; a group may only be mapped to one org across
+all jwt blocks - remove or reconcile one of these blocks
+```
+This exists because resolution otherwise depends on block declaration order - without this check, a typo or a forgotten earlier block would silently and inconsistently route tokens to the wrong org. Repeating the *identical* `org`/`org_claim` for the same group across blocks is allowed (redundant, but unambiguous); only a genuine conflict is rejected. A catch-all block (no `group` directive) never conflicts with a specific-group block, since that pairing is the intended fallback pattern.
+
+**Example - single block (no org mapping, legacy behavior):**
 ```caddyfile
 token {
     jwt {
@@ -133,6 +150,57 @@ token {
     }
 }
 ```
+
+**Example - static org per block:**
+```caddyfile
+token {
+    jwt {
+        issuer https://auth.example.com
+        org engineering
+    }
+}
+```
+
+**Example - org from a claim, including an array element:**
+```caddyfile
+token {
+    jwt {
+        issuer https://auth.example.com
+        org_claim department   # plain string claim
+    }
+}
+
+token {
+    jwt {
+        issuer https://auth.example.com
+        org_claim groups[0]    # first element of an array claim
+    }
+}
+```
+
+**Example - multiple blocks mapping specific groups to specific orgs:**
+```caddyfile
+token {
+    jwt {
+        issuer https://auth.example.com
+        group superadmin
+        org platform
+    }
+    jwt {
+        group billing-admin
+        org billing
+    }
+    jwt {
+        # catch-all: matches any authenticated token not matched above
+        org_claim department
+    }
+}
+```
+With a token whose `groups` claim is `["billing-admin"]`, the second block
+matches and `X-Scope-OrgID` is set to `billing`. A token with `groups:
+["superadmin", "billing-admin"]` matches the first block instead, since
+blocks are tried in order. A token with no matching group falls through to
+the catch-all block's `org_claim`.
 
 ### `signed`
 Configures signed API key validation. Signed API keys (minted using `caddy-token-gen`) encode tenant metadata (such as organization and scopes) and can be HMAC-signed (v2) or AES-GCM encrypted (v3).
@@ -205,7 +273,9 @@ token {
 ```
 
 ### `tenantOrgClaim`
-Specifies which JWT claim to use for tenant organization mapping.
+Specifies which JWT claim to use for tenant organization mapping. This is a
+fallback: it only applies when the matched `jwt` block has neither `org`
+nor `org_claim` configured (see [`jwt`](#jwt)).
 
 **Syntax:** `tenantOrgClaim <claim_name>`
 **Options:** `ort` (observability read tenants), `owt` (observability write tenants)

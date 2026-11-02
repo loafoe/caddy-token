@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/avast/retry-go/v4"
@@ -41,8 +43,8 @@ type Middleware struct {
 	verifier          *oidc.IDTokenVerifier
 	watcher           *fsnotify.Watcher
 	TenantOrgClaim    string
+	JWTMappings       []JWTGroupMapping
 	SigningKey        string
-	Groups            []string
 	Scopes            []string
 	ClientCA          bool
 	Debug             bool
@@ -86,6 +88,10 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		return fmt.Errorf("error creating watcher: %w", err)
 	}
 	//defer watcher.Close()
+
+	if err := validateJWTMappings(m.JWTMappings); err != nil {
+		return err
+	}
 
 	if m.Issuer != "" {
 		provider, err := oidc.NewProvider(ctx, m.Issuer)
@@ -203,6 +209,177 @@ func (m *Middleware) Provision(ctx caddy.Context) error {
 		m.logger.Info("no token file to watch")
 	}
 	return nil
+}
+
+// JWTGroupMapping associates a set of required group claims with an
+// organization to resolve for the jwt auth flow. Each `jwt { ... }` block
+// in the Caddyfile contributes one mapping, so multiple blocks sharing the
+// same issuer can route different group memberships to different orgs. A
+// mapping with no Groups configured matches any token unconditionally.
+type JWTGroupMapping struct {
+	Groups   []string
+	Org      string
+	OrgClaim string
+}
+
+// orgClaimIndexPattern matches an OrgClaim using array-index syntax, e.g.
+// "groups[0]", referencing an element of an array-valued claim.
+var orgClaimIndexPattern = regexp.MustCompile(`^(.+)\[(\d+)\]$`)
+
+// ErrOrgClaimNoAccess is returned when OrgClaim uses array-index syntax
+// (e.g. "groups[0]") but the referenced claim has no usable value at that
+// index - the claim is absent, isn't an array, or the array is shorter
+// than the index requires (including empty). This is treated as an
+// explicit denial rather than a fallthrough to another org source: an
+// empty groups claim means the subject has no org/tenant membership to
+// authorize against.
+var ErrOrgClaimNoAccess = errors.New("org_claim array index has no value: access denied")
+
+// matchJWTMapping returns the first mapping whose required Groups are all
+// present in have, and whether one was found. A mapping with no Groups
+// configured matches unconditionally. An empty mappings list (no jwt
+// blocks configure group/org restrictions) also matches unconditionally,
+// preserving the behavior of a bare `jwt { issuer ... }` block.
+func matchJWTMapping(mappings []JWTGroupMapping, have []string) (JWTGroupMapping, bool) {
+	if len(mappings) == 0 {
+		return JWTGroupMapping{}, true
+	}
+	for _, mapping := range mappings {
+		if jwtGroupsSatisfied(mapping.Groups, have) {
+			return mapping, true
+		}
+	}
+	return JWTGroupMapping{}, false
+}
+
+// jwtGroupsSatisfied reports whether every group in required is present in
+// have. An empty required list matches unconditionally.
+func jwtGroupsSatisfied(required, have []string) bool {
+	for _, g := range required {
+		if !slices.Contains(have, g) {
+			return false
+		}
+	}
+	return true
+}
+
+// validateJWTMappings rejects configurations where the same group name is
+// required by two or more jwt blocks that resolve to different orgs. Since
+// matchJWTMapping picks the first satisfied block in declaration order, a
+// token holding that group would silently get whichever org happens to be
+// declared first - this is almost certainly a config mistake rather than
+// intent, so it's rejected outright instead of resolved implicitly.
+//
+// A mapping with no Groups (a catch-all) is exempt: pairing a catch-all
+// with specific-group blocks is the deliberate fallback pattern documented
+// for `jwt`, not a conflict.
+func validateJWTMappings(mappings []JWTGroupMapping) error {
+	type seenMapping struct {
+		mapping JWTGroupMapping
+		block   int
+	}
+	seenByGroup := make(map[string]seenMapping)
+
+	for i, mapping := range mappings {
+		for _, group := range mapping.Groups {
+			prior, ok := seenByGroup[group]
+			if !ok {
+				seenByGroup[group] = seenMapping{mapping: mapping, block: i + 1}
+				continue
+			}
+			if prior.mapping.Org == mapping.Org && prior.mapping.OrgClaim == mapping.OrgClaim {
+				continue // identical org resolution: redundant, not ambiguous
+			}
+			return fmt.Errorf(
+				"ambiguous jwt org mapping: group %q resolves to %s in jwt block %d, but to %s in jwt block %d; "+
+					"a group may only be mapped to one org across all jwt blocks - remove or reconcile one of these blocks",
+				group, describeJWTOrgSource(prior.mapping), prior.block, describeJWTOrgSource(mapping), i+1)
+		}
+	}
+	return nil
+}
+
+// describeJWTOrgSource renders how a JWTGroupMapping resolves its org, for
+// use in validateJWTMappings error messages.
+func describeJWTOrgSource(m JWTGroupMapping) string {
+	switch {
+	case m.Org != "":
+		return fmt.Sprintf("org %q", m.Org)
+	case m.OrgClaim != "":
+		return fmt.Sprintf("org_claim %q", m.OrgClaim)
+	default:
+		return "no org (falls back to tenantOrgClaim)"
+	}
+}
+
+// resolveOrgFromClaim extracts an organization from a static org value or
+// a named claim. A static org always takes precedence over orgClaim,
+// mirroring SpiffeTrustDomain.ExtractOrg.
+//
+// orgClaim may name a plain string claim ("department") or, for array
+// claims, an indexed element ("groups[0]"). The second return value
+// reports whether an org was resolved, so callers can fall back to another
+// org source (e.g. legacy TenantOrgClaim) when neither org nor orgClaim is
+// configured, or a plain string claim is absent/empty. A non-nil error
+// instead means array-index extraction found no usable value and access
+// must be denied outright (see ErrOrgClaimNoAccess).
+func resolveOrgFromClaim(org, orgClaim string, claims map[string]any) (string, bool, error) {
+	if org != "" {
+		return org, true, nil
+	}
+	if orgClaim == "" {
+		return "", false, nil
+	}
+
+	claimName := orgClaim
+	index := -1
+	if match := orgClaimIndexPattern.FindStringSubmatch(orgClaim); match != nil {
+		claimName = match[1]
+		idx, err := strconv.Atoi(match[2])
+		if err != nil {
+			return "", false, nil
+		}
+		index = idx
+	}
+
+	val, ok := claims[claimName]
+	if !ok {
+		if index >= 0 {
+			return "", false, ErrOrgClaimNoAccess
+		}
+		return "", false, nil
+	}
+
+	if index >= 0 {
+		items, ok := toStringSlice(val)
+		if !ok || index >= len(items) || items[index] == "" {
+			return "", false, ErrOrgClaimNoAccess
+		}
+		return items[index], true, nil
+	}
+
+	if str, ok := val.(string); ok && str != "" {
+		return str, true, nil
+	}
+	return "", false, nil
+}
+
+// toStringSlice converts a JSON-decoded array claim into a []string. It
+// reports false if val isn't an array or contains a non-string element.
+func toStringSlice(val any) ([]string, bool) {
+	arr, ok := val.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, 0, len(arr))
+	for _, v := range arr {
+		s, ok := v.(string)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, s)
+	}
+	return out, true
 }
 
 func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
@@ -372,34 +549,53 @@ func (m *Middleware) CheckTokenAndInjectHeaders(r *http.Request) error {
 			return caddyhttp.Error(http.StatusUnauthorized, err)
 		}
 
-		// Check group claims
-		for _, group := range m.Groups {
-			if !slices.Contains(claims.Groups, group) {
-				m.logger.Error("missing group claim", zap.String("group", group))
-				return caddyhttp.Error(http.StatusUnauthorized, nil)
-			}
+		// Resolve the jwt mapping (if any) whose required groups are all
+		// present in the token. Each `jwt { ... }` block contributes one
+		// mapping, so multiple blocks can route different group
+		// memberships to different orgs using the same issuer.
+		mapping, matched := matchJWTMapping(m.JWTMappings, claims.Groups)
+		if !matched {
+			m.logger.Error("no jwt mapping matched token groups", zap.Strings("groups", claims.Groups))
+			return caddyhttp.Error(http.StatusUnauthorized, nil)
 		}
 
 		// Inject X-Scope-OrgID header
 		if m.InjectOrgHeader {
-			switch m.TenantOrgClaim {
-			case "ort":
-				if len(claims.ObservabilityReadTenants) > 0 {
-					if m.Debug {
-						m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityReadTenants, "|")))
-					}
-					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityReadTenants, "|"))
-				}
-			case "owt":
-				if len(claims.ObservabilityWriteTenants) > 0 {
-					if m.Debug {
-						m.logger.Info("owt X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
-					}
-					r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityWriteTenants, "|"))
-				}
-			default:
+			rawClaims := jwt.MapClaims{}
+			_, _, _ = jwt.NewParser().ParseUnverified(idToken, rawClaims) // signature already verified above
+
+			org, ok, orgErr := resolveOrgFromClaim(mapping.Org, mapping.OrgClaim, rawClaims)
+			if orgErr != nil {
 				if m.Debug {
-					m.logger.Info("not injecting X-Scope-OrgID header")
+					m.logger.Error("jwt org_claim denied access", zap.Error(orgErr))
+				}
+				return caddyhttp.Error(http.StatusUnauthorized, orgErr)
+			}
+			if ok {
+				if m.Debug {
+					m.logger.Info("jwt org X-Scope-OrgID", zap.String("value", org))
+				}
+				r.Header.Set(scopeIDHeader, org)
+			} else {
+				switch m.TenantOrgClaim {
+				case "ort":
+					if len(claims.ObservabilityReadTenants) > 0 {
+						if m.Debug {
+							m.logger.Info("ort X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityReadTenants, "|")))
+						}
+						r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityReadTenants, "|"))
+					}
+				case "owt":
+					if len(claims.ObservabilityWriteTenants) > 0 {
+						if m.Debug {
+							m.logger.Info("owt X-Scope-OrgID", zap.String("value", strings.Join(claims.ObservabilityWriteTenants, "|")))
+						}
+						r.Header.Set(scopeIDHeader, strings.Join(claims.ObservabilityWriteTenants, "|"))
+					}
+				default:
+					if m.Debug {
+						m.logger.Info("not injecting X-Scope-OrgID header")
+					}
 				}
 			}
 		} else {
